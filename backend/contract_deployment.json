@@ -1,0 +1,414 @@
+{
+  "address": "0x143bCDdae609640c966f5a4235119Bd1051193eF",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "stage",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "actor",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "hashAtEvent",
+          "type": "bytes32"
+        }
+      ],
+      "name": "CustodyLogged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "KeyReleased",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "blobHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "variantId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "examStartTime",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "printerAddress",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "expectedCopies",
+          "type": "uint256"
+        }
+      ],
+      "name": "PaperRegistered",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "printerAddress",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "printedCount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "PrintCountReported",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "examBoard",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        }
+      ],
+      "name": "getBlobHash",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        }
+      ],
+      "name": "getCenterState",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "registered",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "keyReleased",
+          "type": "bool"
+        },
+        {
+          "internalType": "address",
+          "name": "printer",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "expectedCopies",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "printedCount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "examStartTime",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        }
+      ],
+      "name": "getCustodyLog",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "string",
+              "name": "stage",
+              "type": "string"
+            },
+            {
+              "internalType": "address",
+              "name": "actor",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timestamp",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "hashAtEvent",
+              "type": "bytes32"
+            }
+          ],
+          "internalType": "struct PaperCustody.CustodyEvent[]",
+          "name": "",
+          "type": "tuple[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        }
+      ],
+      "name": "getKey",
+      "outputs": [
+        {
+          "internalType": "bytes",
+          "name": "",
+          "type": "bytes"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        }
+      ],
+      "name": "getVariantId",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        }
+      ],
+      "name": "isKeyReleased",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "stage",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "hashAtEvent",
+          "type": "bytes32"
+        }
+      ],
+      "name": "logCustodyEvent",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "blobHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "string",
+          "name": "variantId",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "examStartTime",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "printerAddress",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "expectedCopies",
+          "type": "uint256"
+        }
+      ],
+      "name": "registerPaper",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes",
+          "name": "wrappedKey",
+          "type": "bytes"
+        }
+      ],
+      "name": "releaseKey",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "centerId",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "newCount",
+          "type": "uint256"
+        }
+      ],
+      "name": "reportPrintedCount",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "deployer": "0x3697b55D7B220Fe384710c395aEd3433a88054A7",
+  "network": "sepolia",
+  "deployedAt": "2026-10-21T06:14:39.375Z"
+}

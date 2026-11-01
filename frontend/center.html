@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Exam Center — NEET Integrity Chain</title>
+<link rel="stylesheet" href="styles/shared.css" />
+<style>
+  .narrow { max-width: 560px; margin: 0 auto; }
+  .btns { display: flex; gap: 10px; margin-top: 14px; }
+  .btns button { flex: 1; padding: 11px; }
+  .big { font-size: 26px; font-weight: 700; margin: 4px 0 8px; }
+  .bar { height: 8px; background: #262a33; border-radius: 4px; overflow: hidden; margin: 6px 0 4px; }
+  .bar > span { display: block; height: 100%; background: var(--ok); width: 0; transition: width .4s; }
+  #progress { display: none; margin-top: 16px; }
+  .note { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin-top: 18px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="brand">NEET Integrity Chain</span>
+  <a href="index.html">Home</a>
+  <a href="board.html">Exam board</a>
+  <a href="center.html" class="active">Exam center</a>
+</header>
+
+<main>
+  <div class="narrow">
+    <div class="card">
+      <h2>Exam center status</h2>
+      <p class="sub">See whether your paper is unlocked and how many copies your printer has produced.</p>
+
+      <label for="center-id">Center ID</label>
+      <input type="text" id="center-id" placeholder="e.g. center_001" autocomplete="off" />
+
+      <div class="btns">
+        <button id="status-btn">Check status</button>
+      </div>
+      <div id="msg" class="msg"></div>
+
+      <div id="progress">
+        <div class="big" id="count"></div>
+        <div class="bar"><span id="bar-fill"></span></div>
+        <div class="muted" id="count-sub"></div>
+      </div>
+
+      <p class="note">This page never shows the paper. It is decrypted and printed by this center's printer controller, the only device that can unlock it, and only once the exam has started. This page refreshes by itself.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+  const API = location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+  const $ = (id) => document.getElementById(id);
+  let timer = null;
+
+  function setMsg(text, kind) {
+    const el = $("msg");
+    el.textContent = text || "";
+    el.className = "msg" + (text ? " " + kind : "");
+  }
+
+  function errText(detail, fallback) {
+    if (!detail) return fallback;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join("; ");
+    return JSON.stringify(detail);
+  }
+
+  function showProgress(printed, expected) {
+    $("progress").style.display = "block";
+    $("count").textContent = `${printed} of ${expected} copies`;
+    $("bar-fill").style.width = Math.min(100, Math.round((printed / expected) * 100)) + "%";
+    $("count-sub").textContent = printed >= expected ? "All expected copies have been printed."
+      : "Copies are logged on the blockchain as the printer produces them.";
+  }
+
+  async function refresh() {
+    const id = $("center-id").value.trim();
+    if (!id) { setMsg("Enter a center ID.", "err"); return; }
+
+    let res;
+    try { res = await fetch(`${API}/status/${encodeURIComponent(id)}`); }
+    catch (e) { setMsg("Could not reach the backend (is uvicorn running?).", "err"); return; }
+
+    let d = null;
+    try { d = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      $("progress").style.display = "none";
+      setMsg(errText(d && d.detail, res.statusText), "err");
+      return;
+    }
+
+    if (!d.registered) {
+      $("progress").style.display = "none";
+      setMsg(`${d.center_id}: not registered with the exam board yet.`, "wait");
+    } else if (!d.key_released) {
+      showProgress(d.printed_count, d.expected_copies);
+      setMsg(`${d.center_id}: the paper is locked. Your printer will start automatically once the exam begins (${new Date(d.exam_start_time * 1000).toLocaleString()}, chain time) and the board releases the key.`, "wait");
+    } else if (d.printed_count >= d.expected_copies) {
+      showProgress(d.printed_count, d.expected_copies);
+      setMsg(`${d.center_id}: printing is complete.`, "ok");
+    } else {
+      showProgress(d.printed_count, d.expected_copies);
+      setMsg(`${d.center_id}: the key is released. Your printer is printing.`, "ok");
+    }
+  }
+
+  function start() {
+    if (timer) clearInterval(timer);
+    refresh();
+    timer = setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+  }
+
+  $("status-btn").addEventListener("click", start);
+  $("center-id").addEventListener("keydown", (e) => { if (e.key === "Enter") start(); });
+
+  const fromUrl = new URLSearchParams(location.search).get("center");
+  if (fromUrl) { $("center-id").value = fromUrl; start(); }
+</script>
+</body>
+</html>

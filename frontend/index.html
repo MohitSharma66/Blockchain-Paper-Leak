@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NEET Integrity Chain</title>
+<link rel="stylesheet" href="styles/shared.css" />
+<style>
+  .hero { max-width: 760px; margin: 70px auto 0; text-align: center; }
+  .hero h1 { font-size: 26px; margin: 0 0 8px; }
+  .hero p { color: var(--muted); margin: 0 0 36px; }
+  .choices { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+  .choice { flex: 1 1 300px; max-width: 360px; text-align: left; text-decoration: none; color: inherit;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; }
+  .choice:hover { border-color: var(--accent); }
+  .choice h3 { margin: 0 0 6px; font-size: 16px; }
+  .choice p { margin: 0; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <h1>NEET Integrity Chain</h1>
+    <p>Encrypted, time-locked exam papers with on-chain integrity checks.</p>
+    <div class="choices">
+      <a class="choice" href="board.html">
+        <h3>Exam board</h3>
+        <p>Upload a paper, generate watermarked variants, enroll printers, register centers, release keys.</p>
+      </a>
+      <a class="choice" href="center.html">
+        <h3>Exam center</h3>
+        <p>Check whether your paper is unlocked and how many copies your printer has produced.</p>
+      </a>
+    </div>
+  </div>
+</main>
+</body>
+</html>

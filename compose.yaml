@@ -1,0 +1,141 @@
+services:
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: neet-vault-demo
+    command: ["server", "-dev", "-dev-root-token-id=${VAULT_TOKEN:-local-demo-token-change-me}", "-dev-listen-address=0.0.0.0:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-local-demo-token-change-me}
+      VAULT_ADDR: http://127.0.0.1:8200
+    ports:
+      - "127.0.0.1:8200:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: neet-board-backend
+    environment:
+      SECRET_PROVIDER: vault
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-local-demo-token-change-me}
+      VAULT_KV_PATH: neet/board
+      PRINTER_FUNDING_ETH: ${PRINTER_FUNDING_ETH:-0.005}
+      BLOB_BACKEND: ${BLOB_BACKEND:-local}
+      NEET_DATA_DIR: /app/backend/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./backend/data:/app/backend/data
+    depends_on:
+      vault:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  printer-center-001:
+    build:
+      context: .
+      dockerfile: Dockerfile.printer
+    container_name: neet-printer-center-001
+    environment:
+      RPC_URL: ${PRINTER_RPC_URL:-http://host.docker.internal:8545}
+      BACKEND_API_URL: http://backend:8000
+    command: ["run", "--center", "center_001", "--home", "/app/printer-agent/devices", "--rpc-url", "${PRINTER_RPC_URL:-http://host.docker.internal:8545}", "--api-url", "http://backend:8000"]
+    volumes:
+      - printer_center_001:/app/printer-agent/devices/center_001
+      - ./printer-agent/devices/center_001:/seed/center_001:ro
+      - ./printer-agent/enrollments:/exports
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  printer-center-002:
+    build:
+      context: .
+      dockerfile: Dockerfile.printer
+    container_name: neet-printer-center-002
+    environment:
+      RPC_URL: ${PRINTER_RPC_URL:-http://host.docker.internal:8545}
+      BACKEND_API_URL: http://backend:8000
+    command: ["run", "--center", "center_002", "--home", "/app/printer-agent/devices", "--rpc-url", "${PRINTER_RPC_URL:-http://host.docker.internal:8545}", "--api-url", "http://backend:8000"]
+    volumes:
+      - printer_center_002:/app/printer-agent/devices/center_002
+      - ./printer-agent/devices/center_002:/seed/center_002:ro
+      - ./printer-agent/enrollments:/exports
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  printer-center-003:
+    build:
+      context: .
+      dockerfile: Dockerfile.printer
+    container_name: neet-printer-center-003
+    environment:
+      RPC_URL: ${PRINTER_RPC_URL:-http://host.docker.internal:8545}
+      BACKEND_API_URL: http://backend:8000
+    command: ["run", "--center", "center_003", "--home", "/app/printer-agent/devices", "--rpc-url", "${PRINTER_RPC_URL:-http://host.docker.internal:8545}", "--api-url", "http://backend:8000"]
+    volumes:
+      - printer_center_003:/app/printer-agent/devices/center_003
+      - ./printer-agent/devices/center_003:/seed/center_003:ro
+      - ./printer-agent/enrollments:/exports
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  printer-center-004:
+    build:
+      context: .
+      dockerfile: Dockerfile.printer
+    container_name: neet-printer-center-004
+    environment:
+      RPC_URL: ${PRINTER_RPC_URL:-http://host.docker.internal:8545}
+      BACKEND_API_URL: http://backend:8000
+    command: ["run", "--center", "center_004", "--home", "/app/printer-agent/devices", "--rpc-url", "${PRINTER_RPC_URL:-http://host.docker.internal:8545}", "--api-url", "http://backend:8000"]
+    volumes:
+      - printer_center_004:/app/printer-agent/devices/center_004
+      - ./printer-agent/devices/center_004:/seed/center_004:ro
+      - ./printer-agent/enrollments:/exports
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+
+  # Generic printer service: use `scripts\new-printer.cmd center_005` for any new center.
+  # Identity files live in per-center folders under ./printer-agent/devices.
+  printer-center-generic:
+    build:
+      context: .
+      dockerfile: Dockerfile.printer
+    environment:
+      RPC_URL: ${PRINTER_RPC_URL:-http://host.docker.internal:8545}
+      BACKEND_API_URL: http://backend:8000
+    volumes:
+      - ./printer-agent/enrollments:/exports
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  printer_center_001:
+  printer_center_002:
+  printer_center_003:
+  printer_center_004:

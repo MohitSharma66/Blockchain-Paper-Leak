@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Exam Board — NEET Integrity Chain</title>
+<link rel="stylesheet" href="styles/shared.css" />
+<style>
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11.5px; color: var(--muted); font-weight: 600;
+       padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px; border-bottom: 1px solid #20242d; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .table-wrap { overflow-x: auto; }
+  .chainbar { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+  .toolbar { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+  .toolbar .field { width: 150px; }
+  .toolbar .spacer { flex: 1; }
+  .dev { border: 1px dashed #3a3f4b; border-radius: 8px; padding: 8px 12px; display: flex;
+         gap: 10px; align-items: flex-end; }
+  .dev .field { width: 90px; }
+  .dev .tag { font-size: 11px; color: var(--muted); align-self: center; }
+  a.link { color: var(--accent); text-decoration: none; font-size: 12px; font-weight: 600; }
+  .file-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  input[type=file] { color: var(--muted); font-size: 12.5px; }
+  .empty { text-align: center; color: var(--muted); padding: 26px 0; }
+  td input[type=number] { width: 80px; padding: 5px 7px; }
+  .bar { height: 5px; background: #262a33; border-radius: 3px; margin-top: 4px; width: 90px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--ok); }
+  .sub2 { font-size: 11.5px; margin-top: 2px; }
+  details.review { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  details.review > summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+  .review-item { border-top: 1px solid #20242d; padding: 10px 0; font-size: 12.5px; }
+  .review-item:first-of-type { margin-top: 8px; }
+  .review-title { font-weight: 600; margin-bottom: 4px; }
+  .review-item ul { margin: 4px 0 8px 18px; padding: 0; color: var(--muted); }
+  .review-img { display: block; max-width: 100%; background: #fff; border-radius: 4px; margin: 6px 0; }
+  .review-item label { display: inline-flex; gap: 6px; align-items: center; margin-right: 16px; cursor: pointer; }
+  .review-text { color: var(--muted); white-space: pre-wrap; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="brand">NEET Integrity Chain</span>
+  <a href="index.html">Home</a>
+  <a href="board.html" class="active">Exam board</a>
+  <a href="center.html">Exam center</a>
+</header>
+
+<main>
+  <!-- Chain status -->
+  <div class="card" style="padding: 12px 20px;">
+    <div class="chainbar">
+      <span>Blockchain: <span id="chain-pill" class="pill grey">checking…</span></span>
+      <span class="muted">Chain time: <span id="chain-time">—</span></span>
+      <span id="chain-err" class="muted"></span>
+    </div>
+  </div>
+
+  <!-- 1. Generate -->
+  <div class="card">
+    <h2>1. Generate paper variants</h2>
+    <p class="sub">Each variant is the same paper with the options shuffled differently, rendered to PDF and encrypted. One variant is assigned to each center.</p>
+
+    <div class="file-row">
+      <input type="file" id="pdf-import-file" accept="application/pdf,.pdf" />
+      <button class="secondary small" id="pdf-import-btn">Import PDF for review</button>
+      <span id="pdf-import-msg" class="muted">Reads the PDF text (OCR only for scanned pages) and cuts out figures. Draft only: review every question and option.</span>
+    </div>
+    <div class="file-row">
+      <label for="question-format">Question identifier</label>
+      <select id="question-format"><option value="auto" selected>Auto-detect</option><option value="1)">1) 2) 3)</option><option value="1.">1. 2. 3.</option><option value="Q1">Q1, Q2, Q3</option><option value="Question 1">Question 1, Question 2</option></select>
+      <label for="question-boundary">Question starts</label>
+      <select id="question-boundary"><option value="line" selected>At line start</option></select>
+    </div>
+    <div class="file-row">
+      <label for="option-format">Option identifier</label>
+      <select id="option-format"><option value="auto" selected>Auto-detect</option><option value="(1)">(1) (2) (3) (4)</option><option value="1)">1) 2) 3) 4)</option><option value="1.">1. 2. 3. 4.</option><option value="(A)">(A) (B) (C) (D)</option><option value="A.">A. B. C. D.</option></select>
+      <label for="option-count">Options per question</label>
+      <select id="option-count"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option></select>
+    </div>
+    <div class="file-row">
+      <input type="file" id="answer-key-file" accept=".txt,.csv,.tsv,.pdf" />
+      <button class="secondary small" id="answer-key-btn">Upload answer key</button>
+      <span id="answer-key-msg" class="muted">Separate file: e.g. 1 A, 2 C, 3 D. Check matches before generation.</span>
+    </div>
+    <div class="file-row">
+      <input type="file" id="paper-file" accept=".json,application/json" />
+      <button class="secondary small" id="sample-btn">Load sample paper</button>
+      <span id="paper-summary" class="muted"></span>
+    </div>
+
+    <div id="review"></div>
+
+    <label for="paper-json">Paper JSON</label>
+    <textarea id="paper-json" spellcheck="false" placeholder='{"exam_name": "...", "questions": [ {"id": 1, "question_text": "...", "options": ["..","..","..",".."], "correct_index": 0} ]}'></textarea>
+
+    <div class="row" style="margin-top: 14px;">
+      <div style="width: 180px;">
+        <label for="num-variants">Number of variants (= centers)</label>
+        <input type="number" id="num-variants" min="1" max="500" value="4" />
+      </div>
+      <button id="generate-btn">Generate</button>
+    </div>
+    <div id="gen-msg" class="msg"></div>
+  </div>
+
+  <!-- 2. Centers -->
+  <div class="card">
+    <h2>2. Centers</h2>
+    <p class="sub">First enroll each center's printer: upload the enrollment file its printer agent created, and check the fingerprint shown here matches the one on the printer itself. Then register: that writes the blob hash, variant, exam start, printer address and expected copies to the contract. No key goes on-chain until release.</p>
+
+    <div class="toolbar">
+      <div class="field">
+        <label for="minutes">Exam starts in (minutes)</label>
+        <input type="number" id="minutes" min="0.5" step="0.5" value="2" />
+      </div>
+      <div class="field">
+        <label for="default-copies">Default copies per center</label>
+        <input type="number" id="default-copies" min="1" value="30" />
+      </div>
+      <button class="secondary" id="enroll-btn">Enroll printers…</button>
+      <input type="file" id="enroll-files" accept=".json,application/json" multiple hidden />
+      <button id="register-all-btn">Register all enrolled</button>
+      <button class="secondary" id="refresh-btn">Refresh</button>
+      <div class="spacer"></div>
+      <div class="dev">
+        <span class="tag">DEV: local chain</span>
+        <div class="field">
+          <label for="ff-seconds">Skip ahead (s)</label>
+          <input type="number" id="ff-seconds" min="1" value="300" />
+        </div>
+        <button class="secondary" id="ff-btn">Fast-forward</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Center ID</th>
+            <th>Variant</th>
+            <th>Blob hash</th>
+            <th>Printer</th>
+            <th>Key</th>
+            <th>Copies</th>
+            <th>Exam start</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="centers-body">
+          <tr><td colspan="9" class="empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="center-msg" class="msg"></div>
+  </div>
+</main>
+
+<script>
+  // Works both when served by the backend (/ui/) and when opened as a local file.
+  const API = location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+
+  const SAMPLE_PAPER = {
+    exam_name: "NEET 2026 (Mock)",
+    questions: [
+      { id: 1, subject: "Physics", question_text: "A body of mass 2 kg is moving with a velocity of 3 m/s. What is its kinetic energy?",
+        options: ["6 J", "9 J", "12 J", "18 J"], correct_index: 1 },
+      { id: 2, subject: "Chemistry", question_text: "Which of the following is the correct electronic configuration of Sodium (Na)?",
+        options: ["2, 8, 1", "2, 8, 2", "2, 8, 8", "2, 7, 2"], correct_index: 0 },
+      { id: 3, subject: "Biology", question_text: "Which organelle is known as the powerhouse of the cell?",
+        options: ["Ribosome", "Golgi apparatus", "Mitochondria", "Nucleus"], correct_index: 2 }
+    ]
+  };
+
+  const $ = (id) => document.getElementById(id);
+  let currentCenters = [];
+  let busy = false;
+  const copiesByCenter = new Map();   // values the user typed into a row
+
+  // ---------- helpers ----------
+  function setMsg(el, text, kind) {
+    el.textContent = text || "";
+    el.className = "msg" + (text ? " " + kind : "");
+  }
+
+  function errText(detail, fallback) {
+    if (!detail) return fallback;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join("; ");
+    return JSON.stringify(detail);
+  }
+
+  async function api(path, options) {
+    let res;
+    try {
+      res = await fetch(API + path, options);
+    } catch (e) {
+      return { ok: false, error: "Could not reach the backend (is uvicorn running?)" };
+    }
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) return { ok: false, error: errText(data && data.detail, res.statusText) };
+    return { ok: true, data };
+  }
+
+  function readText(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+      r.readAsText(file);
+    });
+  }
+
+  function fmtTime(ts) { return new Date(ts * 1000).toLocaleString(); }
+
+  function fmtRemaining(seconds) {
+    if (seconds <= 0) return "time reached";
+    const m = Math.floor(seconds / 60), s = seconds % 60;
+    return m > 0 ? `in ${m}m ${s}s` : `in ${s}s`;
+  }
+
+  function el(tag, props, ...children) {
+    const e = Object.assign(document.createElement(tag), props || {});
+    for (const c of children) e.append(c);
+    return e;
+  }
+
+  // ---------- paper input ----------
+  function summarisePaper() {
+    const raw = $("paper-json").value.trim();
+    const out = $("paper-summary");
+    if (!raw) { out.textContent = ""; return; }
+    try {
+      const p = JSON.parse(raw);
+      const n = Array.isArray(p.questions) ? p.questions.length : 0;
+      out.textContent = `${p.exam_name || "(no exam_name)"} · ${n} question${n === 1 ? "" : "s"}`;
+    } catch (e) {
+      out.textContent = "Not valid JSON yet";
+    }
+  }
+
+  $("paper-file").addEventListener("change", async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    $("paper-json").value = await readText(file);
+    summarisePaper();
+    renderReview();
+  });
+  $("sample-btn").addEventListener("click", () => {
+    $("paper-json").value = JSON.stringify(SAMPLE_PAPER, null, 2);
+    summarisePaper();
+    renderReview();
+  });
+  $("paper-json").addEventListener("input", () => { summarisePaper(); scheduleReview(); });
+
+  // ---------- review of the imported draft ----------
+  // Questions the importer flagged are listed next to a picture of the original, so each can be
+  // checked without going back to the PDF. Changes are written straight back into the Paper JSON.
+  let reviewTimer = null, reviewOpen = false;
+  function scheduleReview() { clearTimeout(reviewTimer); reviewTimer = setTimeout(renderReview, 600); }
+  function readPaper() { try { return JSON.parse($("paper-json").value); } catch (_) { return null; } }
+  function writePaper(p) { $("paper-json").value = JSON.stringify(p, null, 2); summarisePaper(); renderReview(); }
+
+  function renderReview() {
+    const box = $("review");
+    box.replaceChildren();
+    const paper = readPaper();
+    if (!paper || !Array.isArray(paper.questions)) return;
+    const flagged = [];
+    paper.questions.forEach((q, idx) => { if (q && q.needs_review) flagged.push([q, idx]); });
+    if (!flagged.length) return;
+
+    const d = el("details", { className: "review", open: reviewOpen });
+    d.addEventListener("toggle", () => { reviewOpen = d.open; });
+    d.appendChild(el("summary", { textContent:
+      `${flagged.length} question${flagged.length === 1 ? "" : "s"} flagged for review. Check each against the original, then tick "checked".` }));
+
+    for (const [q, idx] of flagged) {
+      const item = el("div", { className: "review-item" });
+      item.appendChild(el("div", { className: "review-title", textContent: `Q${q.id}${q.subject ? " · " + q.subject : ""}` }));
+      const notes = [...(q.review_issues || []), ...(q.info || [])];
+      if (notes.length) item.appendChild(el("ul", null, ...notes.map(t => el("li", { textContent: t }))));
+      if (typeof q.question_image === "string" && q.question_image.startsWith("data:image/")) {
+        item.appendChild(el("img", { className: "review-img", src: q.question_image, alt: `Original of question ${q.id}` }));
+      }
+      item.appendChild(el("div", { className: "review-text", textContent:
+        (q.question_text || "") + "\n" + (q.options || []).map((o, i) => `  ${i + 1}) ${o}`).join("\n") }));
+
+      if (q.question_image) {
+        const asPic = el("input", { type: "checkbox", checked: q.render_as_image === true });
+        asPic.addEventListener("change", () => {
+          const p = readPaper(); if (!p) return;
+          const t = p.questions[idx];
+          t.render_as_image = asPic.checked;
+          // a picture of the original has its own option order, so it is never shuffled
+          t.fixed_options = asPic.checked || new Set(t.options).size < t.options.length;
+          writePaper(p);
+        });
+        item.appendChild(el("label", { title: "Use when the text above is wrong or incomplete and cannot be fixed easily" },
+          asPic, "Print this question as a picture of the original (options are not shuffled)"));
+      }
+      const done = el("input", { type: "checkbox" });
+      done.addEventListener("change", () => {
+        const p = readPaper(); if (!p) return;
+        p.questions[idx].needs_review = !done.checked;
+        writePaper(p);
+      });
+      item.appendChild(el("label", null, done, "I have checked this question"));
+      d.appendChild(item);
+    }
+    box.appendChild(d);
+  }
+
+  // ---------- PDF import (draft only; the operator reviews the JSON before generation) ----------
+  $("pdf-import-btn").addEventListener("click", async () => {
+    const input = $("pdf-import-file");
+    const msg = $("pdf-import-msg");
+    const file = input.files && input.files[0];
+    if (!file) { msg.textContent = "Choose a PDF first."; return; }
+    const btn = $("pdf-import-btn"); btn.disabled = true;
+    msg.textContent = "Reading the PDF… a scanned paper can take a few minutes.";
+    try {
+      const form = new FormData(); form.append("file", file);
+      form.append("question_format", $("question-format").value);
+      form.append("question_boundary", $("question-boundary").value);
+      form.append("option_format", $("option-format").value);
+      form.append("option_count", $("option-count").value);
+      const response = await fetch(API + "/import-pdf", { method: "POST", body: form });
+      let result = null;
+      try { result = await response.json(); } catch (_) {}
+      if (!response.ok) throw new Error(errText(result && result.detail, "PDF import failed."));
+      $("paper-json").value = JSON.stringify(result.paper, null, 2);
+      summarisePaper();
+      reviewOpen = true;
+      renderReview();
+      const qs = result.paper.questions;
+      const figures = qs.filter(q => (q.images || []).length).length;
+      const issues = result.review_notes || [];
+      msg.textContent = `Draft created: ${qs.length} questions, ${figures} with figures, ${qs.filter(q => q.needs_review).length} flagged for review. ` +
+        `Review them below and fill any empty correct_index before Generate. ${issues.length ? "Notes: " + issues.join(" | ") : ""}`;
+      msg.className = "muted";
+    } catch (err) { msg.textContent = err.message; }
+    finally { btn.disabled = false; }
+  });
+
+
+  $("answer-key-btn").addEventListener("click", async () => {
+    const file = $("answer-key-file").files && $("answer-key-file").files[0];
+    const msg = $("answer-key-msg");
+    if (!file) { msg.textContent = "Choose an answer-key file first."; return; }
+    let paper;
+    try { paper = JSON.parse($("paper-json").value); }
+    catch (e) { msg.textContent = "Import a PDF or load a valid paper JSON first."; return; }
+    if (!Array.isArray(paper.questions)) { msg.textContent = "The paper has no questions yet."; return; }
+    const btn = $("answer-key-btn"); btn.disabled = true;
+    try {
+      // The pictures stay here: only ids and options are needed to match the key.
+      const slim = { questions: paper.questions.map(q => ({ id: q.id, options: q.options })) };
+      const form = new FormData(); form.append("file", file); form.append("paper_json", JSON.stringify(slim));
+      const response = await fetch(API + "/import-answer-key", { method: "POST", body: form });
+      let result = null;
+      try { result = await response.json(); } catch (_) {}
+      if (!response.ok) throw new Error(errText(result && result.detail, "Answer-key import failed."));
+      const answers = new Map(result.paper.questions.map(q => [q.id, q.correct_index]));
+      for (const q of paper.questions) {
+        const a = answers.get(q.id);
+        if (a !== undefined && a !== null) q.correct_index = a;
+      }
+      $("paper-json").value = JSON.stringify(paper, null, 2); summarisePaper();
+      msg.textContent = `Applied ${result.applied} answers from ${result.key_entries} key entries. Unmatched question IDs: ${result.unmatched_question_ids.join(", ") || "none"}. Review all matches.`;
+    } catch (err) { msg.textContent = err.message; }
+    finally { btn.disabled = false; }
+  });
+
+  // ---------- generate ----------
+  $("generate-btn").addEventListener("click", async () => {
+    const msg = $("gen-msg");
+    let paper;
+    try {
+      paper = JSON.parse($("paper-json").value);
+    } catch (e) {
+      setMsg(msg, "The paper is not valid JSON: " + e.message, "err");
+      return;
+    }
+    const n = parseInt($("num-variants").value, 10);
+    if (!Number.isInteger(n) || n < 1) {
+      setMsg(msg, "Enter a whole number of variants (at least 1).", "err");
+      return;
+    }
+    const questions = Array.isArray(paper.questions) ? paper.questions : [];
+    const unchecked = questions.filter(q => q && q.needs_review).length;
+    if (unchecked && !confirm(`${unchecked} question${unchecked === 1 ? " is" : "s are"} still flagged for review. Generate the papers anyway?`)) {
+      return;
+    }
+    // The picture of the original is only sent where it is printed (render_as_image); the rest was for review.
+    for (const q of questions) { if (q && q.render_as_image !== true) delete q.question_image; }
+
+    $("generate-btn").disabled = true;
+    setMsg(msg, `Generating ${n} variant${n === 1 ? "" : "s"} (shuffle, render PDF, encrypt, store)…`, "wait");
+    const r = await api("/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paper, num_variants: n })
+    });
+    $("generate-btn").disabled = false;
+
+    if (!r.ok) { setMsg(msg, r.error, "err"); return; }
+    const list = r.data.centers;
+    setMsg(msg, `Generated ${list.length} center${list.length === 1 ? "" : "s"}: ${list[0].center_id} to ${list[list.length - 1].center_id}. Next: enroll their printers.`, "ok");
+    await loadCenters(true);
+  });
+
+  // ---------- centers table ----------
+  function copiesFor(id) {
+    if (copiesByCenter.has(id)) return copiesByCenter.get(id);
+    const d = parseInt($("default-copies").value, 10);
+    return d >= 1 ? d : 30;
+  }
+
+  function statusPill(c) {
+    if (c.registered === null) return ["grey", "Unknown (chain offline)"];
+    if (!c.registered) return c.enrolled ? ["grey", "Not registered"] : ["grey", "Needs printer"];
+    if (!c.key_released) return ["amber", "Registered · locked"];
+    if (c.printed_count >= c.expected_copies) return ["green", "Printed"];
+    if (c.printed_count > 0) return ["amber", "Printing"];
+    return ["amber", "Released · awaiting printer"];
+  }
+
+  function renderCenters(payload) {
+    const body = $("centers-body");
+    body.replaceChildren();
+
+    if (!payload.centers.length) {
+      body.appendChild(el("tr", null, el("td", { colSpan: 9, className: "empty", textContent: "No centers yet. Generate variants above." })));
+      return;
+    }
+
+    for (const c of payload.centers) {
+      const tr = el("tr");
+      const cell = (...children) => { const td = el("td", null, ...children); tr.appendChild(td); return td; };
+
+      cell(el("code", { textContent: c.center_id }));
+      cell(el("code", { textContent: c.variant_id }));
+      cell(el("code", { textContent: c.blob_hash.slice(0, 12) + "…", title: c.blob_hash }));
+
+      // Printer: fingerprint to compare in person, plus the chain address
+      if (c.enrolled) {
+        const addr = c.printer_address;
+        cell(
+          el("code", { textContent: c.printer_fingerprint, title: "Compare with the fingerprint shown on the printer" }),
+          el("div", { className: "muted mono sub2", textContent: addr.slice(0, 8) + "…" + addr.slice(-4), title: addr })
+        );
+      } else {
+        cell(el("span", { className: "muted", textContent: "Not enrolled" }));
+      }
+
+      // Key: in the store until release, destroyed after
+      let keyText = "MISSING";
+      if (c.has_key) keyText = "in key store";
+      else if (c.key_released) keyText = "destroyed at release";
+      cell(el("span", { className: "muted", textContent: keyText }));
+
+      // Copies: editable before registration, printed/expected after
+      if (c.registered) {
+        const printed = c.printed_count, expected = c.expected_copies;
+        const bar = el("div", { className: "bar" }, el("span"));
+        bar.firstChild.style.width = Math.min(100, Math.round((printed / expected) * 100)) + "%";
+        cell(el("span", { textContent: `${printed} / ${expected}` }), bar);
+      } else {
+        const input = el("input", { type: "number", min: 1, value: copiesFor(c.center_id), title: "Expected copies for this center" });
+        input.addEventListener("input", () => copiesByCenter.set(c.center_id, parseInt(input.value, 10)));
+        cell(input);
+      }
+
+      // Exam start
+      const start = el("span");
+      if (c.exam_start_time) {
+        start.textContent = fmtTime(c.exam_start_time);
+        if (payload.chain_time && !c.key_released) {
+          const rem = el("div", { className: "muted sub2", textContent: fmtRemaining(c.exam_start_time - payload.chain_time) });
+          start.appendChild(rem);
+        }
+      } else {
+        start.className = "muted"; start.textContent = "—";
+      }
+      cell(start);
+
+      const [kind, label] = statusPill(c);
+      cell(el("span", { className: "pill " + kind, textContent: label }));
+
+      const actions = cell();
+      if (c.registered === false) {
+        const b = el("button", { className: "small", textContent: "Register" });
+        if (!c.enrolled) { b.disabled = true; b.title = "Enroll this center's printer first"; }
+        b.addEventListener("click", () => registerOne(c.center_id));
+        actions.appendChild(b);
+      } else if (c.registered && !c.key_released) {
+        const b = el("button", { className: "small secondary", textContent: "Release key" });
+        b.addEventListener("click", () => releaseOne(c.center_id));
+        actions.appendChild(b);
+      } else if (c.key_released) {
+        const a = el("a", { className: "link", textContent: "Center view →" });
+        a.href = "center.html?center=" + encodeURIComponent(c.center_id);
+        actions.appendChild(a);
+      }
+
+      body.appendChild(tr);
+    }
+  }
+
+  async function loadCenters(force) {
+    const r = await api("/centers");
+    if (!r.ok) {
+      $("chain-pill").className = "pill red"; $("chain-pill").textContent = "backend unreachable";
+      $("chain-err").textContent = r.error;
+      return;
+    }
+    const d = r.data;
+    currentCenters = d.centers;
+
+    $("chain-pill").className = "pill " + (d.chain_online ? "green" : "red");
+    $("chain-pill").textContent = d.chain_online ? "online" : "offline";
+    $("chain-time").textContent = d.chain_time ? fmtTime(d.chain_time) : "—";
+    $("chain-err").textContent = d.chain_online ? "" :
+      "Start `npx hardhat node` and deploy the contract. " + (d.chain_error || "");
+
+    // Don't rebuild the table under someone who is typing in it.
+    const active = document.activeElement;
+    if (!force && active && active.tagName === "INPUT" && active.closest("#centers-body")) return;
+    renderCenters(d);
+  }
+
+  // ---------- enroll printers ----------
+  $("enroll-btn").addEventListener("click", () => $("enroll-files").click());
+
+  $("enroll-files").addEventListener("change", async (ev) => {
+    const files = Array.from(ev.target.files || []);
+    try { ev.target.value = ""; } catch (_) {}
+    if (!files.length) return;
+
+    const lines = [];
+    let failed = 0;
+    setMsg($("center-msg"), `Enrolling ${files.length} printer${files.length === 1 ? "" : "s"}…`, "wait");
+
+    for (const f of files) {
+      let data;
+      try {
+        data = JSON.parse(await readText(f));
+      } catch (e) {
+        lines.push(`✗ ${f.name}: not a valid JSON file`); failed++; continue;
+      }
+      if (!data.center_id || !data.address || !data.public_key_pem) {
+        lines.push(`✗ ${f.name}: missing center_id, address or public_key_pem`); failed++; continue;
+      }
+      const r = await api(`/enroll/${encodeURIComponent(data.center_id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: data.address, public_key_pem: data.public_key_pem })
+      });
+      if (!r.ok) { lines.push(`✗ ${data.center_id}: ${r.error}`); failed++; continue; }
+      const j = r.data;
+      lines.push(`✓ ${j.center_id}: fingerprint ${j.fingerprint}` +
+        (j.funded ? " (printer funded)" : "") + (j.warning ? `\n   note: ${j.warning}` : ""));
+    }
+
+    lines.push("", "Check each fingerprint against the one shown on the printer itself before registering.");
+    setMsg($("center-msg"), lines.join("\n"), failed ? "err" : "ok");
+    await loadCenters(true);
+  });
+
+  // ---------- register / release ----------
+  async function registerOne(centerId, quiet) {
+    const minutes = parseFloat($("minutes").value);
+    if (!(minutes >= 0.5)) {
+      setMsg($("center-msg"), "Exam start must be at least 0.5 minutes from now.", "err");
+      return false;
+    }
+    const copies = copiesFor(centerId);
+    if (!Number.isInteger(copies) || copies < 1) {
+      setMsg($("center-msg"), `Enter a whole number of expected copies for ${centerId}.`, "err");
+      return false;
+    }
+    if (!quiet) setMsg($("center-msg"), `Registering ${centerId}…`, "wait");
+    const r = await api(
+      `/register?center_id=${encodeURIComponent(centerId)}&exam_start_in_minutes=${minutes}&expected_copies=${copies}`,
+      { method: "POST" });
+    if (!r.ok) { setMsg($("center-msg"), `${centerId}: ${r.error}`, "err"); return false; }
+    if (!quiet) setMsg($("center-msg"), `${centerId} registered for ${copies} copies. The key can be released from ${fmtTime(r.data.exam_start_time)} (chain time).`, "ok");
+    if (!quiet) await loadCenters(true);
+    return true;
+  }
+
+  async function releaseOne(centerId) {
+    setMsg($("center-msg"), `Releasing key for ${centerId}…`, "wait");
+    const r = await api(`/release-key/${encodeURIComponent(centerId)}`, { method: "POST" });
+    if (!r.ok) {
+      setMsg($("center-msg"), `${centerId}: ${r.error}` +
+        (/not yet releasable/i.test(r.error) ? "\nThe exam start time hasn't been reached on the chain yet. The stored key is untouched." : ""), "err");
+      return;
+    }
+    setMsg($("center-msg"),
+      `Key for ${centerId} was wrapped to its printer and posted on-chain` +
+      (r.data.stored_key_destroyed ? "; the board's stored copy was destroyed." : "."), "ok");
+    await loadCenters(true);
+  }
+
+  $("register-all-btn").addEventListener("click", async () => {
+    if (busy) return;
+    const todo = currentCenters.filter(c => c.registered === false && c.enrolled);
+    const skipped = currentCenters.filter(c => c.registered === false && !c.enrolled).length;
+    if (!todo.length) {
+      setMsg($("center-msg"), skipped ? `Nothing to register: ${skipped} center(s) still need a printer enrolled.` : "Nothing to register.", "wait");
+      return;
+    }
+    busy = true; $("register-all-btn").disabled = true;
+    let done = 0;
+    for (const c of todo) {   // one at a time: each registration is its own transaction
+      setMsg($("center-msg"), `Registering ${c.center_id} (${done + 1}/${todo.length})…`, "wait");
+      if (!(await registerOne(c.center_id, true))) break;
+      done++;
+    }
+    busy = false; $("register-all-btn").disabled = false;
+    if (done === todo.length) {
+      setMsg($("center-msg"), `Registered ${done} center${done === 1 ? "" : "s"}.` +
+        (skipped ? ` ${skipped} skipped: no printer enrolled.` : ""), "ok");
+    }
+    await loadCenters(true);
+  });
+
+  $("refresh-btn").addEventListener("click", () => loadCenters(true));
+
+  $("ff-btn").addEventListener("click", async () => {
+    const s = parseInt($("ff-seconds").value, 10);
+    if (!(s >= 1)) { setMsg($("center-msg"), "Enter a number of seconds (at least 1).", "err"); return; }
+    setMsg($("center-msg"), `Advancing the local chain by ${s}s…`, "wait");
+    const r = await api(`/dev/fast-forward?seconds=${s}`, { method: "POST" });
+    if (!r.ok) { setMsg($("center-msg"), r.error, "err"); return; }
+    setMsg($("center-msg"), `Chain time is now ${fmtTime(r.data.chain_time)}. Locked centers can be released if their start time has passed.`, "ok");
+    await loadCenters(true);
+  });
+
+  // ---------- init ----------
+  loadCenters(true);
+  setInterval(() => { if (!document.hidden && !busy) loadCenters(false); }, 6000);
+</script>
+</body>
+</html>

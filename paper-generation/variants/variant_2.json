@@ -1,0 +1,43 @@
+{
+  "exam_name": "NEET 2026 (Mock)",
+  "variant_id": "variant_2",
+  "questions": [
+    {
+      "id": 1,
+      "subject": "Physics",
+      "question_text": "A body of mass 2 kg is moving with a velocity of 3 m/s. What is its kinetic energy?",
+      "options": [
+        "12 J",
+        "18 J",
+        "9 J",
+        "6 J"
+      ],
+      "correct_index": 2
+    },
+    {
+      "id": 2,
+      "subject": "Chemistry",
+      "question_text": "Which of the following is the correct electronic configuration of Sodium (Na)?",
+      "options": [
+        "2, 8, 2",
+        "2, 8, 1",
+        "2, 7, 2",
+        "2, 8, 8"
+      ],
+      "correct_index": 1
+    },
+    {
+      "id": 3,
+      "subject": "Biology",
+      "question_text": "Which organelle is known as the powerhouse of the cell?",
+      "options": [
+        "Golgi apparatus",
+        "Mitochondria",
+        "Ribosome",
+        "Nucleus"
+      ],
+      "correct_index": 1
+    }
+  ],
+  "fingerprint": "c3fad87e8fb3dea0ce0343e31584de2baebc48735791469d0af10fbe4b820241"
+}

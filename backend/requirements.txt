@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+web3
+cryptography
+reportlab
+boto3
+requests
+pdfplumber
+pypdfium2
+python-multipart
+pytesseract
+Pillow

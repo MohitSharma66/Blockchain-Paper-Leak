@@ -1,0 +1,14 @@
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+**/__pycache__/
+**/*.pyc
+node_modules/
+artifacts/
+cache/
+backend/data/
+printer-agent/devices/**/chain_key.hex
+printer-agent/devices/**/wrap_private.pem
+printer-agent/enrollments/
+.git/
