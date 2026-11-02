@@ -109,8 +109,8 @@ def require_chain() -> PaperCustodyClient:
     except Exception as e:
         raise HTTPException(
             503,
-            f"Blockchain not reachable ({e}). Is `npx hardhat node` running and the "
-            f"contract deployed?",
+            f"Blockchain not reachable ({e}). Is the chain running "
+            f"(`python chain/chainctl.py up`) and the contract deployed?",
         )
 
 
@@ -127,7 +127,8 @@ def short_error(e: Exception) -> str:
 def printer_funding_eth() -> float:
     """
     How much ETH to send a printer when it is enrolled (it needs gas to log prints).
-    Local node: 0.5 by default. With BOARD_PRIVATE_KEY set (a real network) the default is 0,
+    Local dev node: 0.5 by default. On a free-gas private chain nothing is sent (see fund_if_needed).
+    With BOARD_PRIVATE_KEY set (a real network) the default is 0,
     so test ETH is never spent unless you set PRINTER_FUNDING_ETH explicitly.
     """
     raw = config.env("PRINTER_FUNDING_ETH")
@@ -229,9 +230,11 @@ def list_centers():
     client = None
     chain_error = None
     chain_time = None
+    dev_tools = False
     try:
         client = get_client()
         chain_time = client.chain_now()
+        dev_tools = client.is_dev_node()
     except Exception as e:
         chain_error = str(e)
         client = None
@@ -257,6 +260,7 @@ def list_centers():
             "blob_hash": rec["blob_hash"],
             "has_key": center_id in keys_present,
             "enrolled": bool(rec.get("printer_address")),
+            "online_ready": bool(rec.get("online_blob_hash")),
             "printer_address": rec.get("printer_address"),
             "printer_fingerprint": rec.get("printer_fingerprint"),
             "registered": registered,
@@ -270,6 +274,7 @@ def list_centers():
         "chain_online": chain_error is None and client is not None,
         "chain_error": chain_error,
         "chain_time": chain_time,
+        "dev_tools": dev_tools,   # true only on Hardhat/Anvil/Ganache: shows the fast-forward control
         "centers": centers,
     }
 
@@ -379,7 +384,16 @@ def register_center(center_id: str, exam_start_in_minutes: float, expected_copie
         raise HTTPException(400, f"Registration failed: {short_error(e)}")
 
     db.update_center_record(center_id, exam_start_time=exam_start_time)
-    return {"status": "registered", "tx_hash": tx_hash, "exam_start_time": exam_start_time}
+
+    # Online mode: anchor the payload hash so the center's exam server can verify what it downloads.
+    online_warning = None
+    if record.get("online_blob_hash"):
+        try:
+            client.log_custody_event(center_id, "ONLINE_PAYLOAD", record["online_blob_hash"])
+        except Exception as e:
+            online_warning = f"Registered, but anchoring the online payload failed: {short_error(e)}"
+    return {"status": "registered", "tx_hash": tx_hash, "exam_start_time": exam_start_time,
+            "online": bool(record.get("online_blob_hash")), "warning": online_warning}
 
 
 @app.post("/release-key/{center_id}")
@@ -422,7 +436,7 @@ def release_key(center_id: str):
 
 @app.post("/dev/fast-forward")
 def dev_fast_forward(seconds: int = 300):
-    """DEV ONLY (local Hardhat node): advance the chain clock so a time-lock can open."""
+    """DEV ONLY (Hardhat/Anvil/Ganache): advance the chain clock. Refused on the private Besu chain."""
     if not 1 <= seconds <= 60 * 60 * 24 * 30:
         raise HTTPException(400, "seconds must be between 1 and 30 days.")
     client = require_chain()
@@ -461,6 +475,20 @@ def get_blob(center_id: str):
         media_type="application/octet-stream",
         headers={"X-Blob-SHA256": record["blob_hash"]},
     )
+
+
+@app.get("/online-blob/{center_id}")
+def get_online_blob(center_id: str):
+    """
+    Encrypted question payload for the center's exam server (online mode). Ciphertext only, like /blob.
+    Its hash is anchored on-chain by the board (custody stage ONLINE_PAYLOAD) when the center is registered.
+    """
+    record = require_record(center_id)
+    if not record.get("online_object_key"):
+        raise HTTPException(404, f"{center_id} was generated before online mode existed; it is print-only.")
+    data = get_blob_store().get(record["online_object_key"])
+    return Response(content=data, media_type="application/octet-stream",
+                    headers={"X-Blob-SHA256": record["online_blob_hash"]})
 
 
 @app.get("/status/{center_id}")

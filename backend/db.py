@@ -35,6 +35,8 @@ _EXTRA_COLUMNS = {
     "printer_address": "TEXT",
     "printer_public_key": "TEXT",
     "printer_fingerprint": "TEXT",
+    "online_blob_hash": "TEXT",      # encrypted question payload for online exams (same AES key as the PDF)
+    "online_object_key": "TEXT",
 }
 
 
@@ -80,21 +82,27 @@ def upsert_center_record(
     blob_hash: str,
     blob_object_key: str,
     exam_start_time: Optional[int] = None,
+    online_blob_hash: Optional[str] = None,
+    online_object_key: Optional[str] = None,
 ) -> None:
     with closing(_connect()) as conn, conn:
         conn.execute(
             """
             INSERT INTO centers
-                (center_id, variant_id, fingerprint, blob_hash, blob_object_key, exam_start_time, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (center_id, variant_id, fingerprint, blob_hash, blob_object_key, exam_start_time, created_at,
+                 online_blob_hash, online_object_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(center_id) DO UPDATE SET
                 variant_id = excluded.variant_id,
                 fingerprint = excluded.fingerprint,
                 blob_hash = excluded.blob_hash,
                 blob_object_key = excluded.blob_object_key,
-                exam_start_time = excluded.exam_start_time
+                exam_start_time = excluded.exam_start_time,
+                online_blob_hash = excluded.online_blob_hash,
+                online_object_key = excluded.online_object_key
             """,
-            (center_id, variant_id, fingerprint, blob_hash, blob_object_key, exam_start_time, int(time.time())),
+            (center_id, variant_id, fingerprint, blob_hash, blob_object_key, exam_start_time, int(time.time()),
+             online_blob_hash, online_object_key),
         )
 
 

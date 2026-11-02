@@ -18,6 +18,7 @@
   .toolbar .spacer { flex: 1; }
   .dev { border: 1px dashed #3a3f4b; border-radius: 8px; padding: 8px 12px; display: flex;
          gap: 10px; align-items: flex-end; }
+  .dev[hidden] { display: none; }
   .dev .field { width: 90px; }
   .dev .tag { font-size: 11px; color: var(--muted); align-self: center; }
   a.link { color: var(--accent); text-decoration: none; font-size: 12px; font-weight: 600; }
@@ -124,7 +125,7 @@
       <button id="register-all-btn">Register all enrolled</button>
       <button class="secondary" id="refresh-btn">Refresh</button>
       <div class="spacer"></div>
-      <div class="dev">
+      <div class="dev" id="dev-panel" hidden>
         <span class="tag">DEV: local chain</span>
         <div class="field">
           <label for="ff-seconds">Skip ahead (s)</label>
@@ -525,7 +526,8 @@
     $("chain-pill").textContent = d.chain_online ? "online" : "offline";
     $("chain-time").textContent = d.chain_time ? fmtTime(d.chain_time) : "—";
     $("chain-err").textContent = d.chain_online ? "" :
-      "Start `npx hardhat node` and deploy the contract. " + (d.chain_error || "");
+      "Start the chain (`python chain/chainctl.py up`) and deploy the contract. " + (d.chain_error || "");
+    $("dev-panel").hidden = !d.dev_tools;   // clock skipping only exists on Hardhat-style dev nodes
 
     // Don't rebuild the table under someone who is typing in it.
     const active = document.activeElement;

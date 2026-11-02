@@ -25,6 +25,17 @@ DEPLOYMENT_PATH = Path(__file__).parent / "contract_deployment.json"
 DEFAULT_RPC_URL = "http://127.0.0.1:8545"
 
 
+def poa_compatible(w3):
+    """QBFT/IBFT blocks carry a long extraData (the validator list). web3.py rejects that unless
+    the proof-of-authority middleware is installed. Harmless on chains that don't need it."""
+    try:
+        from web3.middleware import ExtraDataToPOAMiddleware as _poa     # web3 v7+
+    except ImportError:
+        from web3.middleware import geth_poa_middleware as _poa          # web3 v6
+    w3.middleware_onion.inject(_poa, layer=0)
+    return w3
+
+
 def _raw_signed_transaction(signed: Any) -> bytes:
     """Support eth-account versions with either attribute name."""
     raw = getattr(signed, "raw_transaction", None)
@@ -48,11 +59,12 @@ class PaperCustodyClient:
 
         rpc_url = (
             rpc_url
+            or config.env("CHAIN_RPC_URL")      # private chain; wins over any leftover Sepolia setting
             or config.env("SEPOLIA_RPC_URL")
             or config.env("RPC_URL")
             or DEFAULT_RPC_URL
         )
-        self.w3 = Web3(Web3.HTTPProvider(rpc_url))
+        self.w3 = poa_compatible(Web3(Web3.HTTPProvider(rpc_url)))
         if not self.w3.is_connected():
             raise ConnectionError(f"Could not connect to node at {rpc_url}")
 
@@ -84,11 +96,27 @@ class PaperCustodyClient:
         if base_fee is None:
             return {"gasPrice": self.w3.eth.gas_price}
 
+        if int(base_fee) == 0:
+            # Free-gas private chain (Besu zeroBaseFee): the 1 gwei tip would demand ETH nobody holds.
+            return {"maxFeePerGas": 0, "maxPriorityFeePerGas": 0}
+
         priority_fee = Web3.to_wei(1, "gwei")
         return {
             "maxFeePerGas": int(base_fee) * 2 + priority_fee,
             "maxPriorityFeePerGas": priority_fee,
         }
+
+    def is_free_gas(self) -> bool:
+        """True on a zero-base-fee chain, where accounts need no ETH to send transactions."""
+        return self.w3.eth.get_block("latest").get("baseFeePerGas") == 0
+
+    def is_dev_node(self) -> bool:
+        """True only for Hardhat / Anvil / Ganache, which support evm_increaseTime and friends."""
+        try:
+            version = str(self.w3.client_version).lower()
+        except Exception:
+            return False
+        return any(name in version for name in ("hardhat", "anvil", "ganache", "edr"))
 
     def _wait(self, tx_hash: Any) -> str:
         receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=240)
@@ -116,7 +144,7 @@ class PaperCustodyClient:
     def fund_if_needed(self, address: str, amount_eth: float) -> bool:
         """Send `amount_eth` to `address` if its balance is below half of that. True if sent."""
         target = Web3.to_wei(amount_eth, "ether")
-        if target <= 0:
+        if target <= 0 or self.is_free_gas():
             return False
         address = Web3.to_checksum_address(address)
         if self.w3.eth.get_balance(address) >= target // 2:
@@ -270,6 +298,11 @@ class PaperCustodyClient:
         """DEV ONLY: advance time on a local Hardhat node and mine a block."""
         if not isinstance(seconds, int) or seconds < 0:
             raise ValueError("seconds must be a non-negative integer.")
+        if not self.is_dev_node():
+            raise RuntimeError(
+                "This chain's clock cannot be moved (it is a real/private network, not a Hardhat dev node). "
+                "Register the paper with a start time a minute or two ahead and wait for it."
+            )
         response = self.w3.provider.make_request("evm_increaseTime", [seconds])
         if response.get("error"):
             raise RuntimeError(f"Could not advance chain time: {response['error']}")

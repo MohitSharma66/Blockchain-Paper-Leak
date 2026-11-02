@@ -161,13 +161,24 @@ def load_device(args) -> dict:
     return {"account": account, "rsa": rsa_key}
 
 
+def poa_compatible(w3):
+    """QBFT/IBFT blocks carry a long extraData (the validator list). web3.py rejects that unless
+    the proof-of-authority middleware is installed. Harmless on chains that don't need it."""
+    try:
+        from web3.middleware import ExtraDataToPOAMiddleware as _poa     # web3 v7+
+    except ImportError:
+        from web3.middleware import geth_poa_middleware as _poa          # web3 v6
+    w3.middleware_onion.inject(_poa, layer=0)
+    return w3
+
+
 def connect(args):
     deployment = Path(args.deployment)
     if not deployment.exists():
         sys.exit(f"Deployment file not found: {deployment} (use --deployment)")
     info = json.loads(deployment.read_text(encoding="utf-8"))
     rpc = args.rpc_url
-    w3 = Web3(Web3.HTTPProvider(rpc))
+    w3 = poa_compatible(Web3(Web3.HTTPProvider(rpc)))
     if not w3.is_connected():
         sys.exit(f"Cannot reach the chain at {rpc}")
     contract = w3.eth.contract(address=Web3.to_checksum_address(info["address"]), abi=info["abi"])
@@ -218,6 +229,9 @@ def fee_fields(w3) -> dict:
     base = w3.eth.get_block("latest").get("baseFeePerGas")
     if base is None:
         return {"gasPrice": w3.eth.gas_price}
+    if int(base) == 0:
+        # Free-gas private chain (Besu zeroBaseFee): printers hold no ETH, so the fee must be exactly 0.
+        return {"maxFeePerGas": 0, "maxPriorityFeePerGas": 0}
     tip = Web3.to_wei(1, "gwei")
     return {"maxFeePerGas": int(base) * 2 + tip, "maxPriorityFeePerGas": tip}
 
@@ -366,7 +380,10 @@ def cmd_run(args):
     mode = ("DRY RUN" if args.dry_run else "REAL PRINTING" if (args.print or args.print_cmd) else "SIMULATED printing")
     print(f"Printer agent for {args.center}  [{mode}]")
     print(f"  address {me}  (balance {Web3.from_wei(balance, 'ether')} ETH)  chain {args.rpc_url}")
-    if balance == 0 and not args.dry_run:
+    free_gas = w3.eth.get_block("latest").get("baseFeePerGas") == 0
+    if free_gas:
+        print("  free-gas chain: no funds needed")
+    if balance == 0 and not free_gas and not args.dry_run:
         print("  WARNING: no funds, so this printer cannot record prints. "
               "Ask the board to fund it (or use fund-local on Hardhat).")
 
@@ -407,9 +424,10 @@ def main():
     def chain(sp):
         # Empty settings count as unset, so a blank line in .env falls through to the next option.
         sp.add_argument("--rpc-url",
-                        default=(os.environ.get("SEPOLIA_RPC_URL") or os.environ.get("RPC_URL")
-                                 or "http://127.0.0.1:8545"),
-                        help="chain RPC URL (default $SEPOLIA_RPC_URL, then $RPC_URL, then local Hardhat)")
+                        default=(os.environ.get("CHAIN_RPC_URL") or os.environ.get("SEPOLIA_RPC_URL")
+                                 or os.environ.get("RPC_URL") or "http://127.0.0.1:8545"),
+                        help="chain RPC URL (default $CHAIN_RPC_URL, then $SEPOLIA_RPC_URL, $RPC_URL, "
+                             "then http://127.0.0.1:8545). On the private chain use this center's own node.")
         sp.add_argument("--deployment", default=str(DEFAULT_DEPLOYMENT), help="contract_deployment.json")
 
     i = sub.add_parser("init", help="create this device's keys + enrollment file")

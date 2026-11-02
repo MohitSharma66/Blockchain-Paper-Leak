@@ -1,0 +1,62 @@
+{
+  "chain_id": 7357,
+  "subnet": "172.30.0.0/24",
+  "nodes": [
+    {
+      "name": "node-board",
+      "ip": "172.30.0.10",
+      "rpc_port": 8545,
+      "address": "0x0e2a24d92125d8b487cc959593f1aba6b6d31ea9",
+      "pubkey": "85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f",
+      "enode": "enode://85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f@172.30.0.10:30303"
+    },
+    {
+      "name": "node-center-001",
+      "ip": "172.30.0.11",
+      "rpc_port": 8546,
+      "address": "0x951770785f9c623a539d81d628f05ee7496ae8ce",
+      "pubkey": "e1dbadd3b39fa9e590b61496772cc7aba9f37901720e3c808b2ef44c5ec2ed651ea228f61c7a079fe208391a4813f1e73c589ef06d675bc1bae8b3cd74dc0d56",
+      "enode": "enode://e1dbadd3b39fa9e590b61496772cc7aba9f37901720e3c808b2ef44c5ec2ed651ea228f61c7a079fe208391a4813f1e73c589ef06d675bc1bae8b3cd74dc0d56@172.30.0.11:30303"
+    },
+    {
+      "name": "node-center-002",
+      "ip": "172.30.0.12",
+      "rpc_port": 8547,
+      "address": "0x27e8be40fb530037b051a465d7b361e35c8916fc",
+      "pubkey": "a03aa5765af70bedb2d6f7941a97089b8bacac05cf66d216d94ab62fde1ec3407f0394d778dfaa46047e9ce6e33e59182a0ec6e32eb809b41a68f58c67b00e92",
+      "enode": "enode://a03aa5765af70bedb2d6f7941a97089b8bacac05cf66d216d94ab62fde1ec3407f0394d778dfaa46047e9ce6e33e59182a0ec6e32eb809b41a68f58c67b00e92@172.30.0.12:30303"
+    },
+    {
+      "name": "node-center-003",
+      "ip": "172.30.0.13",
+      "rpc_port": 8548,
+      "address": "0xeaf89a81065edf4a7f8b134499c2985fbbe1debc",
+      "pubkey": "bd5f73cc8e23cfefe07dba66b151d15e0c39a3131e3b6e64e363af108f4bab6a3c34bf13c4869a53831830ccc39f665213101af7fc7473ffbd5eecce10fa1545",
+      "enode": "enode://bd5f73cc8e23cfefe07dba66b151d15e0c39a3131e3b6e64e363af108f4bab6a3c34bf13c4869a53831830ccc39f665213101af7fc7473ffbd5eecce10fa1545@172.30.0.13:30303"
+    },
+    {
+      "name": "node-center-004",
+      "ip": "172.30.0.14",
+      "rpc_port": 8549,
+      "address": "0x19475bd00b959dced002b94831b5a403f7e69309",
+      "pubkey": "1cb12b73058968ba37006abdda49762fa369a0c942c017fc646bb464e73235427bcc1e1b26e975c605b930b3fe67e0f22b768a32c8130c87b142fa2e85ebbcca",
+      "enode": "enode://1cb12b73058968ba37006abdda49762fa369a0c942c017fc646bb464e73235427bcc1e1b26e975c605b930b3fe67e0f22b768a32c8130c87b142fa2e85ebbcca@172.30.0.14:30303"
+    },
+    {
+      "name": "node-center-005",
+      "ip": "172.30.0.15",
+      "rpc_port": 8550,
+      "address": "0x620906b6ec449896331842b7f1502cdb33d0e6b7",
+      "pubkey": "256b754ec3e03eab686faccc137871dc57c277c75cb53113e9580f3d492e9734f5117a0e9ca2e85324a8a3ed57804e052d8b73939af9632b9d3b99a15008d8b7",
+      "enode": "enode://256b754ec3e03eab686faccc137871dc57c277c75cb53113e9580f3d492e9734f5117a0e9ca2e85324a8a3ed57804e052d8b73939af9632b9d3b99a15008d8b7@172.30.0.15:30303"
+    },
+    {
+      "name": "node-center-006",
+      "ip": "172.30.0.16",
+      "rpc_port": 8551,
+      "address": "0x04e0c4a8bac146515341f3b9a5a78cf039c61723",
+      "pubkey": "6c37394905a3f576b2a9718b708b1e3d4892433d91335a7e7ab15fed724b1f6833a2f6e6791b8f82b56c2b475b8f7a2e032bae65356420e471fe03cc5779e503",
+      "enode": "enode://6c37394905a3f576b2a9718b708b1e3d4892433d91335a7e7ab15fed724b1f6833a2f6e6791b8f82b56c2b475b8f7a2e032bae65356420e471fe03cc5779e503@172.30.0.16:30303"
+    }
+  ]
+}

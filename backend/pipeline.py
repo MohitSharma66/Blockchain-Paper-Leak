@@ -19,6 +19,7 @@ import logging
 import math
 import os
 import hashlib
+import json
 import secrets
 import random
 from pathlib import Path
@@ -61,18 +62,42 @@ BODY_FONT, BOLD_FONT = "Helvetica", "Helvetica-Bold"
 _GLYPHS = None
 
 
-def _register_fonts() -> None:
-    global BODY_FONT, BOLD_FONT, _GLYPHS
+def _font_folders() -> list[Path]:
+    """The bundled fonts first, then DejaVu copies that are commonly installed on the machine."""
+    folders = [FONT_DIR, Path("/usr/share/fonts/truetype/dejavu"), Path("/usr/share/fonts/dejavu"),
+               Path("/usr/share/fonts/TTF"), Path("/Library/Fonts"), Path("/System/Library/Fonts/Supplemental")]
     try:
-        regular = TTFont("DejaVuSans", str(FONT_DIR / "DejaVuSans.ttf"))
+        import matplotlib   # ships DejaVu Sans
+        folders.append(Path(matplotlib.get_data_path()) / "fonts" / "ttf")
+    except Exception:
+        pass
+    return folders
+
+
+FONT_PROBLEM = ""
+
+
+def _register_fonts() -> None:
+    global BODY_FONT, BOLD_FONT, _GLYPHS, FONT_PROBLEM
+    for folder in _font_folders():
+        try:
+            regular = TTFont("DejaVuSans", str(folder / "DejaVuSans.ttf"))
+            bold = TTFont("DejaVuSans-Bold", str(folder / "DejaVuSans-Bold.ttf"))
+        except Exception:
+            continue
         pdfmetrics.registerFont(regular)
-        pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", str(FONT_DIR / "DejaVuSans-Bold.ttf")))
+        pdfmetrics.registerFont(bold)
         pdfmetrics.registerFontFamily("DejaVuSans", normal="DejaVuSans", bold="DejaVuSans-Bold")
         BODY_FONT, BOLD_FONT = "DejaVuSans", "DejaVuSans-Bold"
         _GLYPHS = regular.face.charToGlyph
-    except Exception as exc:  # fall back, but say so loudly: formulas would print wrong
-        log.warning("Could not load the Unicode fonts in %s (%s). Falling back to Helvetica: "
-                    "subscripts, Greek letters and minus signs will NOT print correctly.", FONT_DIR, exc)
+        FONT_PROBLEM = ""
+        if folder != FONT_DIR:
+            log.warning("The bundled fonts in %s were not found; using DejaVu Sans from %s.", FONT_DIR, folder)
+        return
+    FONT_PROBLEM = (f"The paper font could not be loaded: DejaVuSans.ttf and DejaVuSans-Bold.ttf are missing from "
+                    f"{FONT_DIR}. Copy the 'fonts' folder that comes with the backend into that place and restart "
+                    f"the server.")
+    log.warning("%s Falling back to Helvetica: subscripts, Greek letters and minus signs will not print.", FONT_PROBLEM)
 
 
 _register_fonts()
@@ -181,6 +206,9 @@ def validate_paper(paper) -> None:
                 raise ValueError(f"{where} has an empty or non-text option. Fix the text, or set "
                                  f"render_as_image to true if the original has a 'question_image'.")
             bad = _unprintable(q["question_text"] + "".join(opts))
+            if bad and FONT_PROBLEM:
+                # not a problem with the question: the font itself is missing
+                raise ValueError(FONT_PROBLEM + f" (Question {q['id']} needs it for: {' '.join(repr(c) for c in bad)}.)")
             if bad:
                 raise ValueError(f"{where} contains characters the paper font cannot print: "
                                  f"{' '.join(repr(c) for c in bad)}. Replace them, or set render_as_image to true.")
@@ -310,6 +338,36 @@ def _render_pdf_bytes(variant: dict) -> bytes:
     return buf.getvalue()
 
 
+def _online_payload(variant: dict) -> bytes:
+    """
+    The same paper as structured data, for the online exam server. It deliberately has NO answers.
+    Each option carries `key` = its position in this variant; an answer sheet records that key, so
+    it can be graded later against the board's answer key whatever order a candidate saw.
+    """
+    questions = []
+    for q in variant["questions"]:
+        item = {
+            "id": q["id"],
+            "subject": q.get("subject"),
+            "fixed_options": _is_fixed(q),
+        }
+        if q.get("render_as_image"):
+            item["question_image"] = q["question_image"]
+            item["options"] = [{"key": i, "text": ""} for i in range(len(q["options"]))]
+        else:
+            item["question_text"] = q["question_text"]
+            item["images"] = q.get("images", [])
+            item["options"] = [{"key": i, "text": t} for i, t in enumerate(q["options"])]
+        questions.append(item)
+    payload = {
+        "exam_name": variant["exam_name"],
+        "option_style": variant.get("option_style", DEFAULT_OPTION_STYLE),
+        "variant_id": variant["variant_id"],
+        "questions": questions,
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
 def _encrypt(pdf_bytes: bytes, key: bytes) -> bytes:
     nonce = os.urandom(12)
     return nonce + AESGCM(key).encrypt(nonce, pdf_bytes, None)
@@ -381,12 +439,17 @@ def generate_all(paper: dict, num_variants: int) -> list[dict]:
             key = AESGCM.generate_key(bit_length=256)
             blob = _encrypt(pdf_bytes, key)
             blob_hash = hashlib.sha256(blob).hexdigest()
+            online_blob = _encrypt(_online_payload(variant), key)    # same key, fresh random nonce
+            online_hash = hashlib.sha256(online_blob).hexdigest()
+            online_key = f"online/{center_id}-{secrets.token_hex(4)}.enc"
             # Random suffix: a re-run never silently overwrites an older object in the bucket.
             object_key = f"blobs/{center_id}-{secrets.token_hex(4)}.enc"
 
             # Record goes in last, so it only exists once everything it points at does.
             store.put(object_key, blob)
             created.append((center_id, variant_id, object_key))
+            store.put(online_key, online_blob)
+            created.append((center_id, variant_id, online_key))
             keystore.store_key(center_id, key)
             keystore.store_answers(variant_id, answers)
             db.upsert_center_record(
@@ -395,6 +458,8 @@ def generate_all(paper: dict, num_variants: int) -> list[dict]:
                 fingerprint=fingerprint,
                 blob_hash=blob_hash,
                 blob_object_key=object_key,
+                online_blob_hash=online_hash,
+                online_object_key=online_key,
             )
 
             results.append({
@@ -405,12 +470,14 @@ def generate_all(paper: dict, num_variants: int) -> list[dict]:
             })
     except Exception:
         for center_id, variant_id, object_key in created:
-            try:
-                db.delete_center(center_id)
-                keystore.purge(center_id, variant_id)
-                store.delete(object_key)
-            except Exception:
-                pass  # best effort; an orphaned object is harmless (it's ciphertext)
+            # Each step on its own: a center appears twice in `created` (PDF blob + online blob).
+            for step in (lambda: db.delete_center(center_id),
+                         lambda: keystore.purge(center_id, variant_id),
+                         lambda: store.delete(object_key)):
+                try:
+                    step()
+                except Exception:
+                    pass  # best effort; an orphaned object is harmless (it's ciphertext)
         raise
 
     return results

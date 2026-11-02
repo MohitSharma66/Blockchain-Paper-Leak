@@ -1,0 +1,51 @@
+# Online-mode exam servers, one per center, on the center's own chain node.
+# Add after the other files:
+#   docker compose --project-directory . -f compose.yaml -f chain/network/docker-compose.chain.yml \
+#       -f chain/network/docker-compose.apps.yml -f chain/compose.exam.yaml up -d --build exam-center-001
+# One-time roster (candidate IDs + access codes, shown once):
+#   docker compose ... run --rm exam-center-001 roster --center center_001 --count 30
+# Candidates open http://localhost:8081/ (center_001), 8082 (center_002), ...
+# The exam server uses the SAME device identity volume as that center's printer.
+x-exam: &exam
+  build:
+    context: .
+    dockerfile: Dockerfile.exam
+  networks: [default, neetchain]
+  depends_on: [backend]
+  restart: unless-stopped
+
+services:
+  exam-center-001:
+    <<: *exam
+    container_name: neet-exam-center-001
+    command: ["run", "--center", "center_001", "--home", "/app/printer-agent/devices", "--rpc-url", "http://node-center-001:8545",
+              "--api-url", "http://backend:8000", "--port", "8080", "--duration-minutes", "${EXAM_MINUTES:-180}", "--data-dir", "/data"]
+    ports: ["127.0.0.1:8081:8080"]
+    volumes: ["printer_center_001:/app/printer-agent/devices/center_001", "exam_data_001:/data"]
+  exam-center-002:
+    <<: *exam
+    container_name: neet-exam-center-002
+    command: ["run", "--center", "center_002", "--home", "/app/printer-agent/devices", "--rpc-url", "http://node-center-002:8545",
+              "--api-url", "http://backend:8000", "--port", "8080", "--duration-minutes", "${EXAM_MINUTES:-180}", "--data-dir", "/data"]
+    ports: ["127.0.0.1:8082:8080"]
+    volumes: ["printer_center_002:/app/printer-agent/devices/center_002", "exam_data_002:/data"]
+  exam-center-003:
+    <<: *exam
+    container_name: neet-exam-center-003
+    command: ["run", "--center", "center_003", "--home", "/app/printer-agent/devices", "--rpc-url", "http://node-center-003:8545",
+              "--api-url", "http://backend:8000", "--port", "8080", "--duration-minutes", "${EXAM_MINUTES:-180}", "--data-dir", "/data"]
+    ports: ["127.0.0.1:8083:8080"]
+    volumes: ["printer_center_003:/app/printer-agent/devices/center_003", "exam_data_003:/data"]
+  exam-center-004:
+    <<: *exam
+    container_name: neet-exam-center-004
+    command: ["run", "--center", "center_004", "--home", "/app/printer-agent/devices", "--rpc-url", "http://node-center-004:8545",
+              "--api-url", "http://backend:8000", "--port", "8080", "--duration-minutes", "${EXAM_MINUTES:-180}", "--data-dir", "/data"]
+    ports: ["127.0.0.1:8084:8080"]
+    volumes: ["printer_center_004:/app/printer-agent/devices/center_004", "exam_data_004:/data"]
+
+volumes:
+  exam_data_001:
+  exam_data_002:
+  exam_data_003:
+  exam_data_004:
