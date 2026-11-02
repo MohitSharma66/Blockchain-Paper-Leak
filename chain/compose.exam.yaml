@@ -44,6 +44,15 @@ services:
     ports: ["127.0.0.1:8084:8080"]
     volumes: ["printer_center_004:/app/printer-agent/devices/center_004", "exam_data_004:/data"]
 
+  # Used by scripts\new-exam-center.cmd for any new center: identity, roster and server in one container.
+  exam-center-generic:
+    build:
+      context: .
+      dockerfile: Dockerfile.exam
+    networks: [default, neetchain]
+    volumes: ["./printer-agent/enrollments:/exports"]
+    depends_on: [backend]
+
 volumes:
   exam_data_001:
   exam_data_002:

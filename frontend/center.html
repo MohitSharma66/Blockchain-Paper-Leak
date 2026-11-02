@@ -21,14 +21,15 @@
   <span class="brand">NEET Integrity Chain</span>
   <a href="index.html">Home</a>
   <a href="board.html">Exam board</a>
-  <a href="center.html" class="active">Exam center</a>
+  <a href="center.html" class="active">Exam center &middot; printing</a>
+  <a href="online.html">Exam center &middot; online</a>
 </header>
 
 <main>
   <div class="narrow">
     <div class="card">
-      <h2>Exam center status</h2>
-      <p class="sub">See whether your paper is unlocked and how many copies your printer has produced.</p>
+      <h2>Exam center status &middot; printing</h2>
+      <p class="sub">See whether your paper is unlocked and how many copies your center device has produced.</p>
 
       <label for="center-id">Center ID</label>
       <input type="text" id="center-id" placeholder="e.g. center_001" autocomplete="off" />
@@ -44,7 +45,7 @@
         <div class="muted" id="count-sub"></div>
       </div>
 
-      <p class="note">This page never shows the paper. It is decrypted and printed by this center's printer controller, the only device that can unlock it, and only once the exam has started. This page refreshes by itself.</p>
+      <p class="note">This page never shows the paper. It is decrypted and printed by this center's center device controller, the only device that can unlock it, and only once the exam has started. This page refreshes by itself.</p>
     </div>
   </div>
 </main>
@@ -72,7 +73,7 @@
     $("count").textContent = `${printed} of ${expected} copies`;
     $("bar-fill").style.width = Math.min(100, Math.round((printed / expected) * 100)) + "%";
     $("count-sub").textContent = printed >= expected ? "All expected copies have been printed."
-      : "Copies are logged on the blockchain as the printer produces them.";
+      : "Copies are logged on the blockchain as the center device produces them.";
   }
 
   async function refresh() {
@@ -96,13 +97,13 @@
       setMsg(`${d.center_id}: not registered with the exam board yet.`, "wait");
     } else if (!d.key_released) {
       showProgress(d.printed_count, d.expected_copies);
-      setMsg(`${d.center_id}: the paper is locked. Your printer will start automatically once the exam begins (${new Date(d.exam_start_time * 1000).toLocaleString()}, chain time) and the board releases the key.`, "wait");
+      setMsg(`${d.center_id}: the paper is locked. Your center device will start automatically once the exam begins (${new Date(d.exam_start_time * 1000).toLocaleString()}, chain time) and the board releases the key.`, "wait");
     } else if (d.printed_count >= d.expected_copies) {
       showProgress(d.printed_count, d.expected_copies);
       setMsg(`${d.center_id}: printing is complete.`, "ok");
     } else {
       showProgress(d.printed_count, d.expected_copies);
-      setMsg(`${d.center_id}: the key is released. Your printer is printing.`, "ok");
+      setMsg(`${d.center_id}: the key is released. Your center device is printing.`, "ok");
     }
   }
 

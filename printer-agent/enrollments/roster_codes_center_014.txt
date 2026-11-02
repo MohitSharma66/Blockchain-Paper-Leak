@@ -1,0 +1,34 @@
+Roster for center_014: 30 candidates -> /app/printer-agent/devices/center_014/roster_center_014.json
+Hand each candidate their slip. The codes are shown ONLY now; the file keeps salted hashes.
+
+candidate id   access code
+014-0001       PAMZ2N6R
+014-0002       PPCBGLQ7
+014-0003       AFWWE4GC
+014-0004       4A7GKBX4
+014-0005       2N79B5FV
+014-0006       JMDHEGNS
+014-0007       9KFJPRAG
+014-0008       5AR2TPAH
+014-0009       JYHGZ8FW
+014-0010       5H87NDHG
+014-0011       GB6YRDZL
+014-0012       WS7KQKCD
+014-0013       HPB9QNP5
+014-0014       RENX34EG
+014-0015       SW55XFBC
+014-0016       PRZM8MUX
+014-0017       JGZQQ6N3
+014-0018       VP8MBFKP
+014-0019       ZJVQK849
+014-0020       Y6Z6HML6
+014-0021       5GHXGQFK
+014-0022       QQWUF6XH
+014-0023       EPYAKHPF
+014-0024       R7AW6JG5
+014-0025       F3MRUHZ8
+014-0026       HNFU8ZNS
+014-0027       FKCBWU5S
+014-0028       JURNKD9U
+014-0029       VAC3KSQW
+014-0030       SF9ME2TY

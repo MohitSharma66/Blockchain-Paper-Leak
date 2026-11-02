@@ -6,5 +6,8 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 COPY printer-agent/printer_agent.py /app/printer-agent/printer_agent.py
 COPY exam-server/exam_server.py exam-server/candidate.html /app/exam-server/
 COPY backend/contract_deployment.json /app/backend/contract_deployment.json
+COPY scripts/exam-container-entrypoint.sh /usr/local/bin/exam-container-entrypoint.sh
+# Windows checkouts may turn LF into CRLF, which breaks `sh`; strip it.
+RUN sed -i 's/\r$//' /usr/local/bin/exam-container-entrypoint.sh && chmod +x /usr/local/bin/exam-container-entrypoint.sh
 ENV PYTHONUNBUFFERED=1
-ENTRYPOINT ["python", "/app/exam-server/exam_server.py"]
+ENTRYPOINT ["/usr/local/bin/exam-container-entrypoint.sh"]

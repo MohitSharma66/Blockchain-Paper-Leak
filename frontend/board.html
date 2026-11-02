@@ -45,7 +45,8 @@
   <span class="brand">NEET Integrity Chain</span>
   <a href="index.html">Home</a>
   <a href="board.html" class="active">Exam board</a>
-  <a href="center.html">Exam center</a>
+  <a href="center.html">Exam center &middot; printing</a>
+  <a href="online.html">Exam center &middot; online</a>
 </header>
 
 <main>
@@ -109,7 +110,7 @@
   <!-- 2. Centers -->
   <div class="card">
     <h2>2. Centers</h2>
-    <p class="sub">First enroll each center's printer: upload the enrollment file its printer agent created, and check the fingerprint shown here matches the one on the printer itself. Then register: that writes the blob hash, variant, exam start, printer address and expected copies to the contract. No key goes on-chain until release.</p>
+    <p class="sub">First enroll each center's center device: upload the enrollment file its center device agent created, and check the fingerprint shown here matches the one on the center device itself. Then register: that writes the blob hash, variant, exam start, center device address and expected copies to the contract. No key goes on-chain until release.</p>
 
     <div class="toolbar">
       <div class="field">
@@ -120,7 +121,7 @@
         <label for="default-copies">Default copies per center</label>
         <input type="number" id="default-copies" min="1" value="30" />
       </div>
-      <button class="secondary" id="enroll-btn">Enroll printers…</button>
+      <button class="secondary" id="enroll-btn">Enroll center devices…</button>
       <input type="file" id="enroll-files" accept=".json,application/json" multiple hidden />
       <button id="register-all-btn">Register all enrolled</button>
       <button class="secondary" id="refresh-btn">Refresh</button>
@@ -142,7 +143,7 @@
             <th>Center ID</th>
             <th>Variant</th>
             <th>Blob hash</th>
-            <th>Printer</th>
+            <th>center device</th>
             <th>Key</th>
             <th>Copies</th>
             <th>Exam start</th>
@@ -410,7 +411,7 @@
 
     if (!r.ok) { setMsg(msg, r.error, "err"); return; }
     const list = r.data.centers;
-    setMsg(msg, `Generated ${list.length} center${list.length === 1 ? "" : "s"}: ${list[0].center_id} to ${list[list.length - 1].center_id}. Next: enroll their printers.`, "ok");
+    setMsg(msg, `Generated ${list.length} center${list.length === 1 ? "" : "s"}: ${list[0].center_id} to ${list[list.length - 1].center_id}. Next: enroll their center devices.`, "ok");
     await loadCenters(true);
   });
 
@@ -423,11 +424,11 @@
 
   function statusPill(c) {
     if (c.registered === null) return ["grey", "Unknown (chain offline)"];
-    if (!c.registered) return c.enrolled ? ["grey", "Not registered"] : ["grey", "Needs printer"];
+    if (!c.registered) return c.enrolled ? ["grey", "Not registered"] : ["grey", "Needs center device"];
     if (!c.key_released) return ["amber", "Registered · locked"];
     if (c.printed_count >= c.expected_copies) return ["green", "Printed"];
     if (c.printed_count > 0) return ["amber", "Printing"];
-    return ["amber", "Released · awaiting printer"];
+    return ["amber", "Released · awaiting center device"];
   }
 
   function renderCenters(payload) {
@@ -444,14 +445,17 @@
       const cell = (...children) => { const td = el("td", null, ...children); tr.appendChild(td); return td; };
 
       cell(el("code", { textContent: c.center_id }));
-      cell(el("code", { textContent: c.variant_id }));
+      const variantCell = cell(el("code", { textContent: c.variant_id }));
+      if (c.online_ready) {
+        variantCell.append(el("span", { className: "pill grey", textContent: "online", title: "This paper also has an online-exam payload", style: "margin-left:6px" }));
+      }
       cell(el("code", { textContent: c.blob_hash.slice(0, 12) + "…", title: c.blob_hash }));
 
-      // Printer: fingerprint to compare in person, plus the chain address
+      // center device: fingerprint to compare in person, plus the chain address
       if (c.enrolled) {
         const addr = c.printer_address;
         cell(
-          el("code", { textContent: c.printer_fingerprint, title: "Compare with the fingerprint shown on the printer" }),
+          el("code", { textContent: c.printer_fingerprint, title: "Compare with the fingerprint shown on the center device" }),
           el("div", { className: "muted mono sub2", textContent: addr.slice(0, 8) + "…" + addr.slice(-4), title: addr })
         );
       } else {
@@ -495,7 +499,7 @@
       const actions = cell();
       if (c.registered === false) {
         const b = el("button", { className: "small", textContent: "Register" });
-        if (!c.enrolled) { b.disabled = true; b.title = "Enroll this center's printer first"; }
+        if (!c.enrolled) { b.disabled = true; b.title = "Enroll this center's center device first"; }
         b.addEventListener("click", () => registerOne(c.center_id));
         actions.appendChild(b);
       } else if (c.registered && !c.key_released) {
@@ -535,7 +539,7 @@
     renderCenters(d);
   }
 
-  // ---------- enroll printers ----------
+  // ---------- enroll center devices ----------
   $("enroll-btn").addEventListener("click", () => $("enroll-files").click());
 
   $("enroll-files").addEventListener("change", async (ev) => {
@@ -545,7 +549,7 @@
 
     const lines = [];
     let failed = 0;
-    setMsg($("center-msg"), `Enrolling ${files.length} printer${files.length === 1 ? "" : "s"}…`, "wait");
+    setMsg($("center-msg"), `Enrolling ${files.length} center device${files.length === 1 ? "" : "s"}…`, "wait");
 
     for (const f of files) {
       let data;
@@ -565,10 +569,10 @@
       if (!r.ok) { lines.push(`✗ ${data.center_id}: ${r.error}`); failed++; continue; }
       const j = r.data;
       lines.push(`✓ ${j.center_id}: fingerprint ${j.fingerprint}` +
-        (j.funded ? " (printer funded)" : "") + (j.warning ? `\n   note: ${j.warning}` : ""));
+        (j.funded ? " (center device funded)" : "") + (j.warning ? `\n   note: ${j.warning}` : ""));
     }
 
-    lines.push("", "Check each fingerprint against the one shown on the printer itself before registering.");
+    lines.push("", "Check each fingerprint against the one shown on the center device itself before registering.");
     setMsg($("center-msg"), lines.join("\n"), failed ? "err" : "ok");
     await loadCenters(true);
   });
@@ -604,7 +608,7 @@
       return;
     }
     setMsg($("center-msg"),
-      `Key for ${centerId} was wrapped to its printer and posted on-chain` +
+      `Key for ${centerId} was wrapped to its center device and posted on-chain` +
       (r.data.stored_key_destroyed ? "; the board's stored copy was destroyed." : "."), "ok");
     await loadCenters(true);
   }
@@ -614,7 +618,7 @@
     const todo = currentCenters.filter(c => c.registered === false && c.enrolled);
     const skipped = currentCenters.filter(c => c.registered === false && !c.enrolled).length;
     if (!todo.length) {
-      setMsg($("center-msg"), skipped ? `Nothing to register: ${skipped} center(s) still need a printer enrolled.` : "Nothing to register.", "wait");
+      setMsg($("center-msg"), skipped ? `Nothing to register: ${skipped} center(s) still need a center device enrolled.` : "Nothing to register.", "wait");
       return;
     }
     busy = true; $("register-all-btn").disabled = true;
@@ -627,7 +631,7 @@
     busy = false; $("register-all-btn").disabled = false;
     if (done === todo.length) {
       setMsg($("center-msg"), `Registered ${done} center${done === 1 ? "" : "s"}.` +
-        (skipped ? ` ${skipped} skipped: no printer enrolled.` : ""), "ok");
+        (skipped ? ` ${skipped} skipped: no center device enrolled.` : ""), "ok");
     }
     await loadCenters(true);
   });

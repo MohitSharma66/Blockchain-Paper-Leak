@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Exam Center (online) — NEET Integrity Chain</title>
+<link rel="stylesheet" href="styles/shared.css" />
+<style>
+  .narrow { max-width: 600px; margin: 0 auto; }
+  .btns { display: flex; gap: 10px; margin-top: 14px; }
+  .btns button, .btns a.btn { flex: 1; padding: 11px; text-align: center; }
+  a.btn { background: var(--accent); color: #fff; border-radius: 6px; font-weight: 600; font-size: 13px; text-decoration: none; }
+  a.btn.off { opacity: .5; pointer-events: none; }
+  .big { font-size: 30px; font-weight: 700; margin: 10px 0 2px; font-family: Consolas, Menlo, monospace; }
+  .grid { display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; margin-top: 16px; font-size: 13.5px; }
+  .grid .k { color: var(--muted); }
+  .note { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin-top: 18px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 5px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="brand">NEET Integrity Chain</span>
+  <a href="index.html">Home</a>
+  <a href="board.html">Exam board</a>
+  <a href="center.html">Exam center &middot; printing</a>
+  <a href="online.html" class="active">Exam center &middot; online</a>
+</header>
+
+<main>
+  <div class="narrow">
+    <div class="card">
+      <h2>Exam center &middot; online</h2>
+      <p class="sub">Shows whether this center's paper is unlocked and whether its exam server is running, and gives candidates the link to the exam.</p>
+
+      <label for="center-id">Center ID</label>
+      <input type="text" id="center-id" placeholder="e.g. center_013" autocomplete="off" />
+
+      <label for="server-url" style="margin-top:12px">This center's exam server address</label>
+      <input type="text" id="server-url" placeholder="http://localhost:8081" autocomplete="off" />
+      <div class="hint">Where the center's exam server listens. Filled in from the center number (center_001 &rarr; port 8081, center_002 &rarr; 8082 ...); change it if yours differs.</div>
+
+      <div class="btns">
+        <button id="status-btn">Check status</button>
+        <a class="btn off" id="open-btn" target="_blank" rel="noopener">Open candidate exam page</a>
+      </div>
+      <div id="msg" class="msg"></div>
+
+      <div id="detail" style="display:none">
+        <div class="big" id="countdown"></div>
+        <div class="muted" id="countdown-sub"></div>
+        <div class="grid">
+          <div class="k">Registered on-chain</div><div id="g-reg"></div>
+          <div class="k">Key released</div><div id="g-key"></div>
+          <div class="k">Exam start (chain time)</div><div id="g-start"></div>
+          <div class="k">Online paper</div><div id="g-online"></div>
+          <div class="k">Exam server</div><div id="g-server"></div>
+          <div class="k">Answer sheets being recorded</div><div id="g-queue"></div>
+        </div>
+      </div>
+
+      <p class="note">Candidates take the exam on the center's own exam server, not on this page, and the paper is never shown here. The server decrypts it in memory only after the board releases the key, and each submitted answer sheet is fingerprinted onto the blockchain.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+  const API = location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+  const $ = (id) => document.getElementById(id);
+  let timer = null;
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
+  };
+
+  function setMsg(text, kind) {
+    const el = $("msg");
+    el.textContent = text || "";
+    el.className = "msg" + (text ? " " + kind : "");
+  }
+  const fmtTime = (t) => new Date(t * 1000).toLocaleString();
+  const fmtLeft = (s) => {
+    s = Math.max(0, Math.floor(s));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return [h, m, s % 60].map((x) => String(x).padStart(2, "0")).join(":");
+  };
+
+  function guessUrl(id) {
+    const m = /_(\d+)$/.exec(id);
+    return m ? `http://localhost:${8080 + parseInt(m[1], 10)}` : "";
+  }
+  function urlFor(id) { return store.get("exam_url_" + id) || guessUrl(id); }
+
+  async function fetchJson(url) {
+    const res = await fetch(url);
+    let d = null;
+    try { d = await res.json(); } catch (_) {}
+    if (!res.ok) throw new Error((d && typeof d.detail === "string" && d.detail) || res.statusText);
+    return d;
+  }
+
+  async function refresh() {
+    const id = $("center-id").value.trim();
+    const base = $("server-url").value.trim().replace(/\/+$/, "");
+    if (!id) { setMsg("Enter a center ID.", "err"); return; }
+    if (base) store.set("exam_url_" + id, base);
+    const open = $("open-btn");
+    if (base) { open.href = base + "/"; open.classList.remove("off"); } else open.classList.add("off");
+
+    let chain;
+    try { chain = await fetchJson(`${API}/status/${encodeURIComponent(id)}`); }
+    catch (e) { $("detail").style.display = "none"; setMsg("Backend: " + e.message, "err"); return; }
+
+    let srv = null, srvErr = null;
+    if (base) {
+      try { srv = await fetchJson(base + "/api/status"); } catch (e) { srvErr = "not reachable"; }
+    } else srvErr = "no address set";
+
+    $("detail").style.display = "block";
+    $("g-reg").textContent = chain.registered ? "yes" : "no";
+    $("g-key").textContent = chain.key_released ? "yes" : "no";
+    $("g-start").textContent = chain.exam_start_time ? fmtTime(chain.exam_start_time) : "—";
+    $("g-online").textContent = chain.online_ready ? "yes (has an online payload)" : "no: this paper is print-only";
+    $("g-server").textContent = srv ? `running (${srv.phase})` : `${srvErr}`;
+    $("g-queue").textContent = srv ? (srv.anchoring_queue ? `${srv.anchoring_queue} waiting` : "none waiting") : "—";
+
+    const big = $("countdown"), sub = $("countdown-sub");
+    big.textContent = ""; sub.textContent = "";
+    if (srv && srv.starts_at && srv.now < srv.starts_at) {
+      big.textContent = fmtLeft(srv.starts_at - srv.now); sub.textContent = "until the exam starts (chain time)";
+    } else if (srv && srv.phase === "open") {
+      big.textContent = fmtLeft(srv.ends_at - srv.now); sub.textContent = "left in the exam (chain time)";
+    }
+
+    if (!chain.online_ready) setMsg(`${id}: this paper was generated before online mode existed, so it can only be printed.`, "err");
+    else if (!chain.registered) setMsg(`${id}: not registered with the exam board yet.`, "wait");
+    else if (!chain.key_released) setMsg(`${id}: the paper is locked. The board releases the key at the exam start (${fmtTime(chain.exam_start_time)}, chain time).`, "wait");
+    else if (!srv) setMsg(`${id}: the key is released, but the center's exam server is ${srvErr}. Start it (python exam_server.py run ...) or check the address above.`, "err");
+    else if (srv.phase === "open") setMsg(`${id}: the exam is open. Candidates can log in.`, "ok");
+    else if (srv.phase === "closed") setMsg(`${id}: the exam time is over. Answer sheets are being recorded on the blockchain.`, "ok");
+    else if (srv.phase === "error") setMsg(`${id}: the exam server stopped safely: ${srv.message}`, "err");
+    else setMsg(`${id}: ${srv.message}`, "wait");
+  }
+
+  function start() {
+    if (timer) clearInterval(timer);
+    refresh();
+    timer = setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+  }
+
+  $("center-id").addEventListener("input", () => { $("server-url").value = urlFor($("center-id").value.trim()); });
+  $("status-btn").addEventListener("click", start);
+  $("center-id").addEventListener("keydown", (e) => { if (e.key === "Enter") start(); });
+
+  const fromUrl = new URLSearchParams(location.search).get("center");
+  if (fromUrl) { $("center-id").value = fromUrl; $("server-url").value = urlFor(fromUrl); start(); }
+</script>
+</body>
+</html>

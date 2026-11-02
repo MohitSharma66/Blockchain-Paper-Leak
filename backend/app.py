@@ -503,6 +503,7 @@ def status(center_id: str):
         "expected_copies": state["expected_copies"] if state["registered"] else None,
         "printed_count": state["printed_count"] if state["registered"] else None,
         "exam_start_time": state["exam_start_time"] if state["registered"] else None,
+        "online_ready": bool(require_record(center_id).get("online_blob_hash")),
     }
 
 

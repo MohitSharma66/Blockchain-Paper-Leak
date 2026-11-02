@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Online exam</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --border:#2a2e38; --text:#e8e8e8; --muted:#9199a8;
+          --accent:#4f7cff; --ok:#7fe3a3; --ok-bg:#11301f; --wait:#e3c67f; --err:#f08080; --err-bg:#331414; }
+  @media (prefers-color-scheme: light) { :root:not([data-force]) { --bg:#f4f5f7; --panel:#fff; --panel2:#eef0f4; --border:#d5d9e1;
+          --text:#1b1f27; --muted:#5d6676; --ok:#0b6b34; --ok-bg:#e3f6ea; --wait:#8a6200; --err:#a02323; --err-bg:#fbe9e9; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:12px 24px; background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
+  header .name { font-weight:700; flex:1; }
+  header .who { color:var(--muted); font-size:13px; }
+  #timer { font:700 20px/1 Consolas,Menlo,monospace; padding:7px 12px; border-radius:8px; background:var(--panel2); border:1px solid var(--border); }
+  #timer.low { color:var(--err); border-color:var(--err); }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 60px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:22px 24px; }
+  .center { max-width:420px; margin:70px auto; }
+  h2 { margin:0 0 6px; font-size:18px; } p.sub { margin:0 0 16px; color:var(--muted); font-size:13px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:12px 0 4px; }
+  input[type=text], input[type=password] { width:100%; padding:10px 12px; font-size:15px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.secondary { background:transparent; color:var(--text); border:1px solid var(--border); }
+  button.danger { background:#c0392b; }
+  .msg { margin-top:14px; padding:10px 12px; border-radius:6px; font-size:14px; display:none; white-space:pre-wrap; }
+  .msg.err { display:block; background:var(--err-bg); color:var(--err); } .msg.wait { display:block; background:var(--panel2); color:var(--wait); }
+  .msg.ok { display:block; background:var(--ok-bg); color:var(--ok); }
+  .layout { display:grid; grid-template-columns:1fr 250px; gap:18px; align-items:start; }
+  @media (max-width:800px) { .layout { grid-template-columns:1fr; } }
+  .qtext { font-size:17px; white-space:pre-wrap; margin:6px 0 14px; }
+  .qsubject { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+  .qimg { max-width:100%; background:#fff; border-radius:6px; margin:6px 0 12px; display:block; }
+  .opt { display:flex; gap:12px; align-items:flex-start; padding:11px 14px; margin:8px 0; border:1px solid var(--border); border-radius:8px; cursor:pointer; background:var(--panel2); }
+  .opt:hover { border-color:var(--accent); } .opt.sel { border-color:var(--accent); background:rgba(79,124,255,.16); }
+  .opt .lbl { font-weight:700; min-width:30px; } .opt .txt { white-space:pre-wrap; }
+  .nav { display:flex; gap:10px; margin-top:18px; flex-wrap:wrap; }
+  .palette { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+  .palette button { padding:8px 0; font-size:13px; background:var(--panel2); color:var(--text); border:1px solid var(--border); }
+  .palette button.done { background:var(--ok-bg); color:var(--ok); border-color:var(--ok); }
+  .palette button.cur { outline:2px solid var(--accent); }
+  .legend { color:var(--muted); font-size:12px; margin-top:10px; }
+  code { font-family:Consolas,Menlo,monospace; word-break:break-all; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="name" id="hname">Online exam</div>
+  <div class="who" id="hwho"></div>
+  <div id="timer" hidden>--:--:--</div>
+</header>
+<main id="main"></main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let token = null, paper = null, cur = 0, offset = 0, ended = false, saving = 0;
+
+try { token = sessionStorage.getItem("exam_token"); } catch (e) {}
+
+function el(tag, props, ...kids) {
+  const n = document.createElement(tag);
+  Object.assign(n, props || {});
+  for (const k of kids) n.append(k);
+  return n;
+}
+function view(...nodes) { const m = $("main"); m.replaceChildren(...nodes); }
+function label(i) {
+  const s = (paper && paper.option_style) || "(A)", n = String(i + 1), a = String.fromCharCode(65 + i);
+  return { "(A)": `(${a})`, "A.": `${a}.`, "(1)": `(${n})`, "1)": `${n})`, "1.": `${n}.` }[s] || `(${a})`;
+}
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = "Bearer " + token;
+  const r = await fetch(path, { ...opts, headers });
+  let data = null; try { data = await r.json(); } catch (e) {}
+  if (!r.ok) { const err = new Error((data && data.detail) || r.statusText); err.status = r.status; throw err; }
+  return data;
+}
+const fmt = (s) => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return [h, m, s % 60].map((x) => String(x).padStart(2, "0")).join(":"); };
+const nowChain = () => Math.floor(Date.now() / 1000) + offset;
+
+// ---------------- login / waiting
+function showLogin(note) {
+  const id = el("input", { type: "text", id: "cid", autocomplete: "off", placeholder: "e.g. 001-0007" });
+  const code = el("input", { type: "password", id: "code", autocomplete: "off", placeholder: "8-character code from your slip" });
+  const msg = el("div", { className: "msg" });
+  const btn = el("button", { textContent: "Start" });
+  const go = async () => {
+    btn.disabled = true; msg.className = "msg";
+    try {
+      const r = await api("/api/login", { method: "POST", body: JSON.stringify({ candidate_id: id.value, code: code.value }) });
+      token = r.token; try { sessionStorage.setItem("exam_token", token); } catch (e) {}
+      await loadPaper();
+    } catch (e) { msg.className = "msg " + (e.status === 425 ? "wait" : "err"); msg.textContent = e.message; }
+    btn.disabled = false;
+  };
+  btn.onclick = go; code.onkeydown = (e) => { if (e.key === "Enter") go(); };
+  const status = el("div", { className: "msg" });
+  view(el("div", { className: "card center" }, el("h2", { textContent: "Candidate login" }),
+    el("p", { className: "sub", textContent: note || "Enter your candidate ID and access code." }),
+    el("label", { textContent: "Candidate ID" }), id, el("label", { textContent: "Access code" }), code,
+    el("div", { style: "margin-top:16px" }, btn), msg, status));
+  pollStatus(status);
+}
+let pollTimer = null;
+async function pollStatus(box) {
+  clearTimeout(pollTimer);
+  try {
+    const s = await api("/api/status");
+    offset = s.now - Math.floor(Date.now() / 1000);
+    if (s.exam_name) $("hname").textContent = s.exam_name;
+    box.className = "msg " + (s.phase === "open" ? "ok" : s.phase === "error" ? "err" : "wait");
+    box.textContent = s.phase === "waiting" && s.starts_at && s.now < s.starts_at
+      ? `${s.message}\nStarts in ${fmt(s.starts_at - s.now)}` : s.message;
+  } catch (e) { box.className = "msg err"; box.textContent = "Cannot reach the exam server."; }
+  if (document.body.contains(box)) pollTimer = setTimeout(() => pollStatus(box), 2000);
+}
+
+// ---------------- exam
+async function loadPaper() {
+  try { paper = await api("/api/paper"); } catch (e) {
+    if (e.status === 401) { token = null; showLogin("Your session ended. Please log in again."); return; }
+    showLogin(e.message); return;
+  }
+  offset = paper.now - Math.floor(Date.now() / 1000);
+  $("hname").textContent = paper.exam_name; $("hwho").textContent = "Candidate " + paper.candidate_id;
+  if (paper.submitted) return showReceipt();
+  cur = 0; ended = false; render(); tick();
+}
+function answered() { return Object.keys(paper.answers).length; }
+function render() {
+  const q = paper.questions[cur];
+  const body = el("div", { className: "card" });
+  if (q.subject) body.append(el("div", { className: "qsubject", textContent: q.subject }));
+  body.append(el("div", { className: "qsubject", textContent: `Question ${q.n} of ${paper.questions.length}` }));
+  if (q.question_image) {
+    body.append(el("img", { className: "qimg", src: q.question_image, alt: `Question ${q.n}` }));
+  } else {
+    body.append(el("div", { className: "qtext", textContent: q.question_text }));
+    for (const uri of q.images || []) body.append(el("img", { className: "qimg", src: uri, alt: "Figure" }));
+  }
+  const chosen = paper.answers[q.id];
+  q.options.forEach((o, i) => {
+    const row = el("div", { className: "opt" + (chosen === o.key ? " sel" : "") },
+      el("span", { className: "lbl", textContent: label(i) }),
+      el("span", { className: "txt", textContent: o.text || "" }));
+    row.onclick = () => choose(q, chosen === o.key ? null : o.key);
+    body.append(row);
+  });
+  const prev = el("button", { className: "secondary", textContent: "Previous", disabled: cur === 0 });
+  const next = el("button", { className: "secondary", textContent: "Next", disabled: cur === paper.questions.length - 1 });
+  const clear = el("button", { className: "secondary", textContent: "Clear answer", disabled: chosen === undefined });
+  prev.onclick = () => { cur--; render(); }; next.onclick = () => { cur++; render(); };
+  clear.onclick = () => choose(q, null);
+  body.append(el("div", { className: "nav" }, prev, next, clear));
+
+  const pal = el("div", { className: "palette" });
+  paper.questions.forEach((x, i) => {
+    const b = el("button", { textContent: x.n, className: (paper.answers[x.id] !== undefined ? "done " : "") + (i === cur ? "cur" : "") });
+    b.onclick = () => { cur = i; render(); }; pal.append(b);
+  });
+  const sub = el("button", { className: "danger", textContent: "Submit exam", style: "width:100%;margin-top:14px" });
+  sub.onclick = () => { if (confirm(`You answered ${answered()} of ${paper.questions.length} questions. Submit now? You cannot change answers afterwards.`)) submit(); };
+  const side = el("div", { className: "card" }, el("div", { className: "qsubject", textContent: "Questions" }), pal,
+    el("div", { className: "legend", textContent: `Answered: ${answered()} / ${paper.questions.length}` }), sub,
+    el("div", { className: "msg", id: "savemsg" }));
+  view(el("div", { className: "layout" }, body, side));
+}
+async function choose(q, key) {
+  if (ended) return;
+  const before = paper.answers[q.id];
+  if (key === null) delete paper.answers[q.id]; else paper.answers[q.id] = key;
+  render();
+  try { await api("/api/answer", { method: "PUT", body: JSON.stringify({ qid: q.id, key }) }); }
+  catch (e) {
+    if (before === undefined) delete paper.answers[q.id]; else paper.answers[q.id] = before;   // not saved: undo
+    render(); const m = $("savemsg"); if (m) { m.className = "msg err"; m.textContent = "Not saved: " + e.message; }
+  }
+}
+function tick() {
+  if (!paper || paper.submitted) { $("timer").hidden = true; return; }
+  const left = paper.ends_at - nowChain();
+  $("timer").hidden = false; $("timer").textContent = fmt(left); $("timer").classList.toggle("low", left < 300);
+  if (left <= 0 && !ended) { ended = true; submit(true); return; }
+  setTimeout(tick, 500);
+}
+async function submit(auto) {
+  ended = true;
+  try { await api("/api/submit", { method: "POST" }); paper = await api("/api/paper"); showReceipt(auto); }
+  catch (e) { view(el("div", { className: "card center" }, el("h2", { textContent: "Could not submit" }),
+      el("div", { className: "msg err", textContent: e.message }),
+      el("div", { style: "margin-top:14px" }, el("button", { textContent: "Try again", onclick: () => submit(auto) })))); }
+}
+async function showReceipt(auto) {
+  $("timer").hidden = true;
+  const hash = el("code", { textContent: paper.submitted.sha256 });
+  const chain = el("div", { className: "msg wait", textContent: "Recording your answer sheet on the blockchain..." });
+  view(el("div", { className: "card center" }, el("h2", { textContent: auto ? "Time is up. Your answers were submitted." : "Submitted" }),
+    el("p", { className: "sub", textContent: "Your answer sheet is final. This fingerprint of it will be written to the blockchain. Keep it as your receipt." }),
+    el("label", { textContent: "Receipt (SHA-256 of your answer sheet)" }), hash, chain));
+  const check = async () => {
+    try {
+      const r = await api("/api/receipt");
+      if (r.tx) { chain.className = "msg ok"; chain.textContent = "Recorded on the blockchain.\nTransaction: " + r.tx; return; }
+      if (r.anchor_error) chain.textContent = "Recording is taking longer than usual (it will keep retrying). Your answers are safe.";
+    } catch (e) {}
+    setTimeout(check, 2500);
+  };
+  check();
+}
+
+if (token) loadPaper(); else showLogin();
+</script>
+</body>
+</html>
