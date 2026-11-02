@@ -1,0 +1,10 @@
+# Center exam server (online mode). Build context: the project root.
+FROM python:3.12-slim
+WORKDIR /app
+COPY exam-server/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY printer-agent/printer_agent.py /app/printer-agent/printer_agent.py
+COPY exam-server/exam_server.py exam-server/candidate.html /app/exam-server/
+COPY backend/contract_deployment.json /app/backend/contract_deployment.json
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["python", "/app/exam-server/exam_server.py"]
