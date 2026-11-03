@@ -60,7 +60,7 @@ services:
       - "--host-allowlist=*"
       - "--rpc-http-cors-origins=*"
       - "--logging=INFO"
-      - "--bootnodes=enode://85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f@172.30.0.10:30303"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
     volumes:
       - ./chain/network/keys/node-center-001/key:/config/key:ro
       - ./chain/network/genesis.json:/config/genesis.json:ro
@@ -91,7 +91,7 @@ services:
       - "--host-allowlist=*"
       - "--rpc-http-cors-origins=*"
       - "--logging=INFO"
-      - "--bootnodes=enode://85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f@172.30.0.10:30303"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
     volumes:
       - ./chain/network/keys/node-center-002/key:/config/key:ro
       - ./chain/network/genesis.json:/config/genesis.json:ro
@@ -122,7 +122,7 @@ services:
       - "--host-allowlist=*"
       - "--rpc-http-cors-origins=*"
       - "--logging=INFO"
-      - "--bootnodes=enode://85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f@172.30.0.10:30303"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
     volumes:
       - ./chain/network/keys/node-center-003/key:/config/key:ro
       - ./chain/network/genesis.json:/config/genesis.json:ro
@@ -153,7 +153,7 @@ services:
       - "--host-allowlist=*"
       - "--rpc-http-cors-origins=*"
       - "--logging=INFO"
-      - "--bootnodes=enode://85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f@172.30.0.10:30303"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
     volumes:
       - ./chain/network/keys/node-center-004/key:/config/key:ro
       - ./chain/network/genesis.json:/config/genesis.json:ro
@@ -184,7 +184,7 @@ services:
       - "--host-allowlist=*"
       - "--rpc-http-cors-origins=*"
       - "--logging=INFO"
-      - "--bootnodes=enode://85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f@172.30.0.10:30303"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
     volumes:
       - ./chain/network/keys/node-center-005/key:/config/key:ro
       - ./chain/network/genesis.json:/config/genesis.json:ro
@@ -215,7 +215,7 @@ services:
       - "--host-allowlist=*"
       - "--rpc-http-cors-origins=*"
       - "--logging=INFO"
-      - "--bootnodes=enode://85c6d78cd2eab786d552853f141dda8f9d969b273e9946649cdf8c9e4958a3b575e75a24df4b1e30fcd62764d9e086d9e21a23203321579ae43128a99b980e3f@172.30.0.10:30303"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
     volumes:
       - ./chain/network/keys/node-center-006/key:/config/key:ro
       - ./chain/network/genesis.json:/config/genesis.json:ro
@@ -225,6 +225,285 @@ services:
     networks:
       neetchain:
         ipv4_address: 172.30.0.16
+
+  node-center-007:
+    <<: *besu
+    container_name: neet-node-center-007
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.17"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-007/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_007:/data
+    ports:
+      - "127.0.0.1:8552:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.17
+
+  node-center-008:
+    <<: *besu
+    container_name: neet-node-center-008
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.18"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-008/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_008:/data
+    ports:
+      - "127.0.0.1:8553:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.18
+
+  node-center-009:
+    <<: *besu
+    container_name: neet-node-center-009
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.19"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-009/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_009:/data
+    ports:
+      - "127.0.0.1:8554:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.19
+
+  node-center-010:
+    <<: *besu
+    container_name: neet-node-center-010
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.20"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-010/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_010:/data
+    ports:
+      - "127.0.0.1:8555:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.20
+
+  node-center-011:
+    <<: *besu
+    container_name: neet-node-center-011
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.21"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-011/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_011:/data
+    ports:
+      - "127.0.0.1:8556:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.21
+
+  node-center-012:
+    <<: *besu
+    container_name: neet-node-center-012
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.22"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-012/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_012:/data
+    ports:
+      - "127.0.0.1:8557:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.22
+
+  node-center-013:
+    <<: *besu
+    container_name: neet-node-center-013
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.23"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-013/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_013:/data
+    ports:
+      - "127.0.0.1:8558:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.23
+
+  node-center-014:
+    <<: *besu
+    container_name: neet-node-center-014
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.24"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-014/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_014:/data
+    ports:
+      - "127.0.0.1:8559:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.24
+
+  node-center-015:
+    <<: *besu
+    container_name: neet-node-center-015
+    command:
+      - "--data-path=/data"
+      - "--genesis-file=/config/genesis.json"
+      - "--node-private-key-file=/config/key"
+      - "--network-id=7357"
+      - "--p2p-host=172.30.0.25"
+      - "--p2p-port=30303"
+      - "--nat-method=NONE"
+      - "--min-gas-price=0"
+      - "--revert-reason-enabled"
+      - "--rpc-http-enabled"
+      - "--rpc-http-host=0.0.0.0"
+      - "--rpc-http-port=8545"
+      - "--rpc-http-api=ETH,NET,QBFT,WEB3,TXPOOL,ADMIN"
+      - "--host-allowlist=*"
+      - "--rpc-http-cors-origins=*"
+      - "--logging=INFO"
+      - "--bootnodes=enode://785cb5661eeac4d5f5264c719862bfa920afc542f73bee1428267de4d5fcc49d83ec8e3c85ac030c8cac5df18396a64d01dc5baf63e3cd5a882e7178fc6550ed@172.30.0.10:30303"
+    volumes:
+      - ./chain/network/keys/node-center-015/key:/config/key:ro
+      - ./chain/network/genesis.json:/config/genesis.json:ro
+      - data_node_center_015:/data
+    ports:
+      - "127.0.0.1:8560:8545"
+    networks:
+      neetchain:
+        ipv4_address: 172.30.0.25
 
 networks:
   neetchain:
@@ -241,3 +520,12 @@ volumes:
   data_node_center_004:
   data_node_center_005:
   data_node_center_006:
+  data_node_center_007:
+  data_node_center_008:
+  data_node_center_009:
+  data_node_center_010:
+  data_node_center_011:
+  data_node_center_012:
+  data_node_center_013:
+  data_node_center_014:
+  data_node_center_015:

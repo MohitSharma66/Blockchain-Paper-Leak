@@ -158,6 +158,22 @@
     </div>
     <div id="center-msg" class="msg"></div>
   </div>
+
+  <div class="card">
+    <h2>3. Online exam results</h2>
+    <p class="sub">After an online exam closes, each center sends its answer sheets here. A sheet is scored only if its fingerprint matches the one the center wrote on the blockchain when the candidate submitted. <span id="marking"></span></p>
+    <div class="row" style="margin-bottom:12px">
+      <button class="secondary" id="results-refresh">Refresh results</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Center</th><th>Sheets</th><th>Verified</th><th>Unverified</th><th>Average</th><th>Highest</th><th>Lowest</th><th></th></tr></thead>
+        <tbody id="results-body"><tr><td colspan="8" class="empty">No results yet.</td></tr></tbody>
+      </table>
+    </div>
+    <div id="results-detail" style="margin-top:18px"></div>
+    <div id="results-msg" class="msg"></div>
+  </div>
 </main>
 
 <script>
@@ -648,7 +664,62 @@
     await loadCenters(true);
   });
 
+  // ---------- online exam results ----------
+  async function loadResults() {
+    const r = await api("/results");
+    const body = $("results-body");
+    body.replaceChildren();
+    if (!r.ok) { setMsg($("results-msg"), r.error, "err"); return; }
+    setMsg($("results-msg"), "", "");
+    const m = r.data.marking;
+    $("marking").textContent = `Marking: +${m.correct} correct, ${m.wrong} wrong, ${m.blank} unanswered.`;
+    if (!r.data.centers.length) {
+      body.append(el("tr", null, el("td", { colSpan: 8, className: "empty", textContent: "No results yet." })));
+      return;
+    }
+    for (const c of r.data.centers) {
+      const view = el("button", { className: "secondary small", textContent: "View candidates" });
+      view.onclick = () => showCandidates(c.center_id);
+      const num = (v) => (v === null || v === undefined ? "—" : String(v));
+      body.append(el("tr", null,
+        el("td", null, el("code", { textContent: c.center_id })),
+        el("td", { textContent: String(c.sheets) }),
+        el("td", { textContent: String(c.verified) }),
+        el("td", { textContent: String(c.unverified) }),
+        el("td", { textContent: num(c.average) }),
+        el("td", { textContent: num(c.highest) }),
+        el("td", { textContent: num(c.lowest) }),
+        el("td", null, view)));
+    }
+  }
+
+  async function showCandidates(centerId) {
+    const box = $("results-detail");
+    const r = await api(`/results/${encodeURIComponent(centerId)}`);
+    box.replaceChildren();
+    if (!r.ok) { setMsg($("results-msg"), r.error, "err"); return; }
+    const tbody = el("tbody");
+    for (const c of r.data.candidates) {
+      tbody.append(el("tr", null,
+        el("td", null, el("code", { textContent: c.candidate_id })),
+        el("td", { textContent: c.verified ? String(c.score) : "—" }),
+        el("td", { textContent: c.verified ? String(c.correct) : "—" }),
+        el("td", { textContent: c.verified ? String(c.wrong) : "—" }),
+        el("td", { textContent: c.verified ? String(c.blank) : "—" }),
+        el("td", null, el("span", { className: "pill " + (c.verified ? "green" : "red"), textContent: c.verified ? "verified on-chain" : "UNVERIFIED" }),
+          c.note ? el("div", { className: "muted", textContent: c.note }) : el("span")),
+        el("td", null, el("code", { textContent: c.sheet_hash.slice(0, 12) + "…", title: c.sheet_hash }))));
+    }
+    box.append(el("h3", { textContent: `${centerId}: candidates`, style: "font-size:14px;margin:0 0 8px" }),
+      el("div", { className: "table-wrap" }, el("table", null,
+        el("thead", null, el("tr", null, ...["Candidate", "Score", "Correct", "Wrong", "Blank", "Status", "Sheet hash"].map(t => el("th", { textContent: t })))),
+        tbody)));
+  }
+
+  $("results-refresh").addEventListener("click", loadResults);
+
   // ---------- init ----------
+  loadResults();
   loadCenters(true);
   setInterval(() => { if (!document.hidden && !busy) loadCenters(false); }, 6000);
 </script>

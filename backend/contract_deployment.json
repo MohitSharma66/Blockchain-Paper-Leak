@@ -1,5 +1,5 @@
 {
-  "address": "0x6398B191932D5Ef4127b284235202d66d14bb1f9",
+  "address": "0xAC5D2b08d7868680B11624095CbaE8d2b8065813",
   "abi": [
     {
       "inputs": [],
@@ -409,5 +409,5 @@
     }
   ],
   "deployer": "0xf51461AB39aECe29d3C8184b19CAbE9633f243dB",
-  "deployedAt": "2026-11-02T05:49:26.210Z"
+  "deployedAt": "2026-11-02T10:49:30.881Z"
 }

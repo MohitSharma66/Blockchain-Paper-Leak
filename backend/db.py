@@ -63,6 +63,57 @@ def _init() -> None:
         )
 
 
+def _init_results() -> None:
+    with closing(_connect()) as conn, conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS results (
+                center_id    TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                sheet_hash   TEXT NOT NULL,
+                sheet_json   TEXT NOT NULL,
+                verified     INTEGER NOT NULL,
+                score        INTEGER,
+                correct      INTEGER,
+                wrong        INTEGER,
+                blank        INTEGER,
+                note         TEXT,
+                received_at  INTEGER NOT NULL,
+                PRIMARY KEY (center_id, candidate_id)
+            )
+            """
+        )
+
+
+def save_result(center_id: str, candidate_id: str, sheet_hash: str, sheet_json: str, verified: bool,
+                score: Optional[int], correct: Optional[int], wrong: Optional[int], blank: Optional[int],
+                note: Optional[str]) -> str:
+    """'new', 'same' (already stored with the same sheet) or 'conflict' (a different sheet is stored; kept)."""
+    with closing(_connect()) as conn, conn:
+        row = conn.execute("SELECT sheet_hash FROM results WHERE center_id = ? AND candidate_id = ?",
+                           (center_id, candidate_id)).fetchone()
+        if row is not None:
+            return "same" if row["sheet_hash"] == sheet_hash else "conflict"
+        conn.execute(
+            "INSERT INTO results (center_id, candidate_id, sheet_hash, sheet_json, verified, score, correct, wrong, blank, note, received_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (center_id, candidate_id, sheet_hash, sheet_json, 1 if verified else 0, score, correct, wrong, blank, note,
+             int(time.time())),
+        )
+    return "new"
+
+
+def list_results(center_id: Optional[str] = None) -> list:
+    sql = ("SELECT center_id, candidate_id, sheet_hash, verified, score, correct, wrong, blank, note, received_at "
+           "FROM results")
+    args: tuple = ()
+    if center_id:
+        sql += " WHERE center_id = ?"
+        args = (center_id,)
+    with closing(_connect()) as conn:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY center_id, candidate_id", args)]
+
+
 def _migrate() -> None:
     with closing(_connect()) as conn, conn:
         have = {row["name"] for row in conn.execute("PRAGMA table_info(centers)")}
@@ -72,6 +123,7 @@ def _migrate() -> None:
 
 
 _init()
+_init_results()
 _migrate()
 
 

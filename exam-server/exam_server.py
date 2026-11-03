@@ -43,8 +43,17 @@ for p in (HERE, HERE.parent / "printer-agent"):          # printer_agent.py sits
 
 import requests
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from eth_account.messages import encode_defunct
 
 import printer_agent as pa   # device identity, chain connection, signing: shared with the printer
+
+
+
+def pa_batch_message(center_id: str, hashes: list) -> str:
+    """Must match backend/grading.py batch_message()."""
+    digest = hashlib.sha256("\n".join(sorted(hashes)).encode()).hexdigest()
+    return f"NEET-SHEETS|{center_id}|{digest}"
+
 
 DEFAULT_DURATION_MIN = 180
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"        # no 0/O/1/I
@@ -149,6 +158,11 @@ class Exam:
         self.state: dict[str, dict] = {}                   # candidate id -> {answers, submitted, ...}
         self.bad: dict[str, list] = {}                     # candidate id -> [count, locked_until]
         self.anchor_q: "queue.Queue[str]" = queue.Queue()
+        self.closed_seen_at: float | None = None
+        self.pushed_marker = self.data_dir / f"results_sent_{self.center}"
+        self.results_sent = self.pushed_marker.exists()
+        self._last_push_try = 0.0
+        self._push_error: str | None = None
         self._replay_journal()
         self.journal = open(self.data_dir / f"journal_{self.center}.jsonl", "a", encoding="utf-8")
 
@@ -302,6 +316,42 @@ class Exam:
         else:
             self._set("closed", "The exam time is over.")
             self._auto_submit_all()
+            self._maybe_push_sheets()
+
+    def _maybe_push_sheets(self):
+        """After the exam: once every sheet is recorded on-chain (or 2 minutes have passed), send the sheets to the board."""
+        if self.results_sent:
+            return
+        now = time.time()
+        if self.closed_seen_at is None:
+            self.closed_seen_at = now
+        if self.anchor_q.unfinished_tasks and now - self.closed_seen_at < 120:
+            return
+        if now - self._last_push_try < 10:
+            return
+        self._last_push_try = now
+        with self.lock:
+            sheets = [st["submitted"] for st in self.state.values() if st["submitted"]]
+        if not sheets:
+            self.results_sent = True
+            self.pushed_marker.write_text("no sheets")
+            return
+        try:
+            msg = pa_batch_message(self.center, [s["sha256"] for s in sheets])
+            sig = "0x" + self.dev["account"].sign_message(encode_defunct(text=msg)).signature.hex().removeprefix("0x")
+            r = requests.post(f"{self.args.api_url}/sheets/{self.center}",
+                              json={"sheets": sheets, "signature": sig}, timeout=60)
+            if not r.ok:
+                raise RuntimeError(f"board answered {r.status_code}: {r.text[:200]}")
+            summary = r.json()
+        except Exception as e:
+            if str(e) != self._push_error:
+                print(f"   could not send the sheets to the board yet ({e}); will retry")
+                self._push_error = str(e)
+            return
+        self.results_sent = True
+        self.pushed_marker.write_text(json.dumps(summary))
+        print(f"   sent {len(sheets)} answer sheets to the board for grading: {summary}")
 
     def _auto_submit_all(self):
         with self.lock:
@@ -449,7 +499,7 @@ def build_app(exam: Exam):
             return {"center": exam.center, "phase": exam.phase, "message": exam.message,
                     "starts_at": exam.starts_at, "ends_at": exam.ends_at,
                     "now": exam.now(), "exam_name": exam.payload["exam_name"] if exam.payload else None,
-                    "anchoring_queue": exam.anchor_q.qsize()}
+                    "anchoring_queue": exam.anchor_q.qsize(), "results_sent": exam.results_sent}
 
     @app.post("/api/login")
     def login(body: Login):

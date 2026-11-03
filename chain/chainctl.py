@@ -9,9 +9,13 @@ Run from the project root:
   python chain/chainctl.py validators          current validator set
   python chain/chainctl.py vote-add  <node>    every current validator votes to add <node>
   python chain/chainctl.py vote-remove <node>  every current validator votes to remove <node>
+  python chain/chainctl.py votes               show validator votes still pending on each node
+  python chain/chainctl.py clear-votes         discard all pending votes (do this if a vote never applied)
   python chain/chainctl.py rotate --size 4 --seed <text>
                                                move the validator set to a pseudo-random
                                                committee of centers (the board node stays)
+  python chain/chainctl.py add-node 7 8 9      give centers 7, 8, 9 their own node (non-validating) on the RUNNING chain
+  python chain/chainctl.py add-node --up-to 12 add nodes for every center up to 12
   python chain/chainctl.py stop <node> [...]   kill nodes (simulate a center going offline)
   python chain/chainctl.py start <node> [...]
   python chain/chainctl.py resilience          stop nodes one by one, show when the chain halts
@@ -128,29 +132,122 @@ def cmd_validators(a, net):
         print(v, name_of(net, v))
 
 
-def vote(net, target: dict, add: bool):
+def live_addresses(net, lag: int = 10) -> set[str]:
+    """Addresses of nodes that answer AND are within `lag` blocks of the head (so they can actually take part)."""
+    heights = {n["name"]: height(n) for n in net["nodes"]}
+    known = [h for h in heights.values() if h is not None]
+    if not known:
+        return set()
+    top = max(known)
+    return {n["address"] for n in net["nodes"] if heights[n["name"]] is not None and top - heights[n["name"]] <= lag}
+
+
+def quorum(n: int) -> int:
+    """QBFT needs more than 2/3 of the validators: ceil(2n/3)."""
+    return -(-2 * n // 3)
+
+
+def safe_set(net, new_set: set[str], live: set[str]) -> tuple[bool, int, int]:
+    up, need = len(new_set & live), quorum(len(new_set))
+    return up >= need, up, need
+
+
+def vote(net, target: dict, add: bool) -> bool:
     cur = validators(net)
     voters = [n for n in net["nodes"] if n["address"] in cur]
+    ok = 0
     for n in voters:
         try:
             rpc(n, "qbft_proposeValidatorVote", [target["address"], add])
+            ok += 1
         except Exception as e:
             print(f"  {n['name']}: vote failed ({e})")
-    print(f"voted {'ADD' if add else 'REMOVE'} {target['name']} on {len(voters)} validators; "
-          f"it takes effect after the next block(s)")
+    need = len(cur) // 2 + 1
+    print(f"voted {'ADD' if add else 'REMOVE'} {target['name']}: {ok} of {len(cur)} validators voted "
+          f"(a majority of {need} is needed); it takes effect after the next block(s)")
+    if ok < need:
+        print("  NOT ENOUGH VOTES REACHED: the validators that did vote may keep this vote pending. Start the "
+              "validators that are down and try again.")
+    return ok >= need
 
 
-def wait_for(net, target_set: set[str], seconds=60) -> bool:
+def wait_for(net, target_set: set[str], seconds=240) -> bool:
+    """Wait for the validator set to change; print block progress so a slow chain and a halted one look different."""
     end = time.time() + seconds
+    last_h, last_move, shown = None, time.time(), 0.0
     while time.time() < end:
         if set(validators(net)) == target_set:
             return True
+        h = next((x for x in (height(n) for n in net["nodes"]) if x is not None), None)
+        if h != last_h:
+            last_h, last_move = h, time.time()
+        if time.time() - shown >= 10:
+            shown = time.time()
+            stalled = int(time.time() - last_move)
+            print(f"  waiting... block {h}" + (f"  (NO new block for {stalled}s)" if stalled >= 10 else ""))
+        if time.time() - last_move > 90:
+            print("  The chain has produced no block for 90 s: it is halted, not slow. Check `status`; restart "
+                  "all validators together if too many were down.")
+            return False
         time.sleep(2)
     return False
 
 
+def guard(net, new_set: set[str], what: str, force: bool = False) -> None:
+    live = live_addresses(net)
+    cur = set(validators(net))
+    ok_now, up_now, need_now = safe_set(net, cur, live)
+    if not ok_now and not force:
+        sys.exit(f"Refusing to {what}: only {up_now} of the {len(cur)} current validators are running "
+                 f"(need {need_now}). Start the stopped validators first (chainctl.py start <n>).")
+    ok, up, need = safe_set(net, new_set, live)
+    if not ok and not force:
+        down = [name_of(net, x) for x in new_set - live]
+        sys.exit(f"Refusing to {what}: the new validator set of {len(new_set)} would have only {up} running "
+                 f"(need {need}), so the chain would stop. Not running or behind: {', '.join(down)}. "
+                 f"Start them first, or pass --force.")
+
+
+def pending_votes(net) -> dict:
+    """{node name: {address: add?}} for every node that answers."""
+    out = {}
+    for n in net["nodes"]:
+        pv = try_rpc(n, "qbft_getPendingVotes")
+        if pv:
+            out[n["name"]] = pv
+    return out
+
+
+def clear_votes(net) -> int:
+    """Discard every pending vote. A vote stays on its node until it reaches a majority, so a half-finished
+    earlier attempt would otherwise keep pushing the validator set toward the OLD plan."""
+    cleared = 0
+    for n in net["nodes"]:
+        for addr in (try_rpc(n, "qbft_getPendingVotes") or {}):
+            if try_rpc(n, "qbft_discardValidatorVote", [addr]) is not None:
+                cleared += 1
+    return cleared
+
+
+def cmd_votes(a, net):
+    pv = pending_votes(net)
+    if not pv:
+        print("No pending votes.")
+    for name, votes in pv.items():
+        for addr, add in votes.items():
+            print(f"{name}: {'ADD' if add else 'REMOVE'} {name_of(net, addr)}")
+
+
+def cmd_clear_votes(a, net):
+    print(f"Discarded {clear_votes(net)} pending vote(s).")
+
+
 def cmd_vote_add(a, net):
     t = resolve(net, a.node)
+    if t["address"] not in live_addresses(net) and not a.force:
+        sys.exit(f"{t['name']} is not running or not caught up, so it cannot vote. Start it first "
+                 f"(chainctl.py start <n>) and wait until `status` shows its block number, or pass --force.")
+    guard(net, set(validators(net)) | {t["address"]}, f"add {t['name']}", a.force)
     vote(net, t, True)
     ok = wait_for(net, set(validators(net)) | {t["address"]})
     print("done" if ok else "not applied yet - a majority of validators must vote; check `status`")
@@ -158,6 +255,7 @@ def cmd_vote_add(a, net):
 
 def cmd_vote_remove(a, net):
     t = resolve(net, a.node)
+    guard(net, set(validators(net)) - {t["address"]}, f"remove {t['name']}", a.force)
     vote(net, t, False)
     ok = wait_for(net, set(validators(net)) - {t["address"]})
     print("done" if ok else "not applied yet - a majority of validators must vote; check `status`")
@@ -165,23 +263,116 @@ def cmd_vote_remove(a, net):
 
 def cmd_rotate(a, net):
     """Deterministic committee from a seed. Add first (so quorum only grows), then remove."""
-    centers = [n for n in net["nodes"] if n["name"] != "node-board"]
+    live = live_addresses(net)
+    # Only nodes that are running and caught up can be chosen: a stopped node would become a validator that never votes.
+    centers = [n for n in net["nodes"] if n["name"] != "node-board" and n["address"] in live]
+    if net["nodes"][0]["address"] not in live:
+        sys.exit("The board node is not running.")
     if a.size > len(centers):
-        sys.exit(f"--size {a.size} > {len(centers)} centers")
+        sys.exit(f"--size {a.size} but only {len(centers)} center nodes are running and synced. "
+                 f"Start more nodes (chainctl.py start <n>) or lower --size.")
+    if a.size + 1 < 4:
+        sys.exit("A committee needs at least 4 validators (board + 3 centers) to tolerate a fault.")
     r = random.Random(hashlib.sha256(a.seed.encode()).digest())
-    pick = {n["address"] for n in r.sample(centers, a.size)} | {net["nodes"][0]["address"]}
+    pick = {n["address"] for n in r.sample(sorted(centers, key=lambda n: n["name"]), a.size)} | {net["nodes"][0]["address"]}
     cur = set(validators(net))
     to_add = [n for n in net["nodes"] if n["address"] in pick - cur]
     to_rm = [n for n in net["nodes"] if n["address"] in cur - pick]
     print("committee:", ", ".join(sorted(name_of(net, p) for p in pick)))
+    print(f"changes: add {len(to_add)}, remove {len(to_rm)}")
+    guard(net, cur, "start the rotation")
+    stale = clear_votes(net)
+    if stale:
+        print(f"Discarded {stale} old pending vote(s) from earlier attempts.")
     for n in to_add:
-        vote(net, n, True)
-        wait_for(net, set(validators(net)) | {n["address"]})
+        guard(net, set(validators(net)) | {n["address"]}, f"add {n['name']}")
+        if not vote(net, n, True):
+            sys.exit("Stopped: the add vote did not reach a majority.")
+        if not wait_for(net, set(validators(net)) | {n["address"]}):
+            sys.exit(f"{n['name']} was not added in time. Check `status` and `votes`; `clear-votes` resets.")
     for n in to_rm:
-        vote(net, n, False)
-        wait_for(net, set(validators(net)) - {n["address"]})
+        guard(net, set(validators(net)) - {n["address"]}, f"remove {n['name']}")
+        if not vote(net, n, False):
+            sys.exit("Stopped: the remove vote did not reach a majority.")
+        if not wait_for(net, set(validators(net)) - {n["address"]}):
+            sys.exit(f"{n['name']} was not removed in time. Check `status` and `votes`; `clear-votes` resets.")
     now = set(validators(net))
     print("rotation", "complete" if now == pick else f"INCOMPLETE: now {len(now)} validators, wanted {len(pick)}")
+
+
+def cmd_add_node(a, net):
+    """
+    Add non-validating nodes for more centers to the running network: same genesis, new keys, next free IP and
+    host port. Existing nodes are not touched (their compose config does not change, so Docker leaves them running).
+    A new node syncs and verifies every block but does not vote; use vote-add / rotate to make it a validator.
+    """
+    import ipaddress
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import make_network as mk
+
+    nodes = net["nodes"]
+    existing = {n["name"] for n in nodes}
+    wanted = sorted(set(a.numbers) | (set(range(1, a.up_to + 1)) if a.up_to else set()))
+    todo = [n for n in wanted if f"node-center-{n:03d}" not in existing]
+    if not wanted:
+        sys.exit("Say which centers: add-node 7 8 9   or   add-node --up-to 12")
+    if not todo:
+        sys.exit("Those centers already have nodes.")
+    if any(n < 1 or n > 999 for n in todo):
+        sys.exit("Center numbers must be between 1 and 999.")
+
+    hosts = list(ipaddress.ip_network(net["subnet"]).hosts())
+    used_ips = {n["ip"] for n in nodes}
+    used_ports = {n["rpc_port"] for n in nodes}
+    base_port = nodes[0]["rpc_port"]
+    out = Path.cwd() / NET
+    new = []
+    for num in todo:
+        i = 9 + num
+        while i < len(hosts) and str(hosts[i]) in used_ips:
+            i += 1
+        if i >= len(hosts):
+            sys.exit(f"The subnet {net['subnet']} is full. Regenerate with a bigger --subnet.")
+        port = base_port + num
+        while port in used_ports:
+            port += 1
+        node = mk.make_node(f"node-center-{num:03d}", str(hosts[i]), port)
+        kd = out / "keys" / node["name"]
+        kd.mkdir(parents=True, exist_ok=True)
+        (kd / "key").write_text(node["private_key"][2:] + "\n")
+        used_ips.add(node["ip"]); used_ports.add(port)
+        nodes.append({k: v for k, v in node.items() if k != "private_key"})
+        new.append(node["name"])
+
+    (out / "nodes.json").write_text(json.dumps(net, indent=2))
+    rel_out = str(NET).replace("\\", "/")
+    (out / "docker-compose.chain.yml").write_text(mk.chain_compose(nodes, net["subnet"], rel_out, net["chain_id"]))
+    base = Path.cwd() / "compose.yaml"
+    if base.exists():
+        txt, warns = mk.apps_compose(base, nodes, f"http://{nodes[0]['name']}:8545")
+        (out / "docker-compose.apps.yml").write_text(txt)
+        for w in warns:
+            print("  note:", w)
+    print(f"Added {len(new)} node(s): {', '.join(new)}   (total nodes now {len(nodes)})")
+    if len(nodes) > 8:
+        print("  Memory: every Besu node uses roughly 0.5 GB. Check Docker Desktop's memory limit "
+              "(WSL2 defaults to half of your RAM) before adding many more.")
+    if a.no_start:
+        print("Not started (--no-start). Start with: python chain/chainctl.py up")
+        return
+    if sh(["docker", "compose", "--project-directory", ".", "-f", str(NET / "docker-compose.chain.yml"), "up", "-d"] + new):
+        sys.exit("docker compose failed")
+    fresh = {n["name"]: n for n in nodes}
+    for name in new:
+        node, ok = fresh[name], False
+        for _ in range(45):
+            h = height(node)
+            if h is not None and try_rpc(node, "net_peerCount") not in (None, "0x0"):
+                ok = True
+                break
+            time.sleep(2)
+        print(f"  {name}: " + (f"up, syncing at block {height(node)}" if ok else "did not answer yet; see: docker logs neet-" + name))
+    print("They verify every block but do not vote. To let one vote:  python chain/chainctl.py vote-add <number>")
 
 
 def cmd_stop(a, net):
@@ -207,7 +398,8 @@ def cmd_resilience(a, net):
     f = (n_val - 1) // 3
     print(f"{n_val} validators -> theory: survives {f} offline, halts at {f + 1}")
     stopped = []
-    for n in [x for x in net["nodes"] if x["name"] != "node-board"]:
+    cur = set(validators(net))
+    for n in [x for x in net["nodes"] if x["name"] != "node-board" and x["address"] in cur]:   # only voters matter
         if len(stopped) > f + 1:
             break
         subprocess.call(["docker", "stop", f"neet-{n['name']}"], stdout=subprocess.DEVNULL)
@@ -229,9 +421,16 @@ def main():
     p = sp.add_parser("down"); p.add_argument("--wipe", action="store_true"); p.set_defaults(f=cmd_down)
     sp.add_parser("status").set_defaults(f=cmd_status)
     sp.add_parser("validators").set_defaults(f=cmd_validators)
-    p = sp.add_parser("vote-add"); p.add_argument("node"); p.set_defaults(f=cmd_vote_add)
-    p = sp.add_parser("vote-remove"); p.add_argument("node"); p.set_defaults(f=cmd_vote_remove)
+    p = sp.add_parser("vote-add"); p.add_argument("node"); p.add_argument("--force", action="store_true"); p.set_defaults(f=cmd_vote_add)
+    p = sp.add_parser("vote-remove"); p.add_argument("node"); p.add_argument("--force", action="store_true"); p.set_defaults(f=cmd_vote_remove)
+    sp.add_parser("votes").set_defaults(f=cmd_votes)
+    sp.add_parser("clear-votes").set_defaults(f=cmd_clear_votes)
     p = sp.add_parser("rotate"); p.add_argument("--size", type=int, required=True); p.add_argument("--seed", required=True); p.set_defaults(f=cmd_rotate)
+    p = sp.add_parser("add-node")
+    p.add_argument("numbers", nargs="*", type=int, help="center numbers, e.g. 7 8 9")
+    p.add_argument("--up-to", type=int, help="add every missing center node up to this number")
+    p.add_argument("--no-start", action="store_true", help="write the files but do not start the containers")
+    p.set_defaults(f=cmd_add_node)
     p = sp.add_parser("stop"); p.add_argument("nodes", nargs="+"); p.set_defaults(f=cmd_stop)
     p = sp.add_parser("start"); p.add_argument("nodes", nargs="+"); p.set_defaults(f=cmd_start)
     p = sp.add_parser("resilience"); p.add_argument("--restore", action="store_true", help="restart stopped nodes afterwards"); p.set_defaults(f=cmd_resilience)

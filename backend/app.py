@@ -31,6 +31,7 @@ Run with: uvicorn app:app --reload   (from inside backend/), then open http://lo
 
 import asyncio
 import hashlib
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
@@ -43,6 +44,7 @@ from web3 import Web3
 
 import config
 import db
+import grading
 import keystore
 import keywrap
 import pipeline
@@ -489,6 +491,93 @@ def get_online_blob(center_id: str):
     data = get_blob_store().get(record["online_object_key"])
     return Response(content=data, media_type="application/octet-stream",
                     headers={"X-Blob-SHA256": record["online_blob_hash"]})
+
+
+class SheetItem(BaseModel):
+    sheet: dict
+    sha256: str
+
+
+class SheetBatch(BaseModel):
+    sheets: list[SheetItem]
+    signature: str
+
+
+@app.post("/sheets/{center_id}")
+def receive_sheets(center_id: str, batch: SheetBatch):
+    """
+    A center's exam server delivers its submitted answer sheets after the exam. Authenticated by a signature
+    from the center's enrolled device (no shared secret). Each sheet is checked against the hash the device
+    wrote on-chain; only matching sheets are scored. Re-sending is safe; a stored sheet is never overwritten.
+    """
+    record = require_record(center_id)
+    device = record.get("printer_address")
+    if not device:
+        raise HTTPException(409, f"{center_id} has no enrolled device.")
+    if len(batch.sheets) > 20000:
+        raise HTTPException(413, "Too many sheets in one request.")
+
+    hashes = [i.sha256 for i in batch.sheets]
+    try:
+        signer = grading.signer_of(center_id, hashes, batch.signature)
+    except Exception:
+        raise HTTPException(403, "The signature is not valid.")
+    if signer.lower() != device.lower():
+        raise HTTPException(403, f"Not signed by the device enrolled for {center_id}.")
+
+    client = require_chain()
+    anchored = grading.anchored_hashes(client.get_custody_log(center_id), device)
+    answer_key = keystore.get_answers(record["variant_id"])
+
+    counts = {"scored": 0, "unverified": 0, "already_stored": 0, "conflicts": 0}
+    for item in batch.sheets:
+        sheet = item.sheet
+        cand = str(sheet.get("candidate_id", ""))
+        actual = grading.sheet_hash(sheet)
+        problem = None
+        if not cand or sheet.get("center") != center_id or sheet.get("variant_id") != record["variant_id"]:
+            problem = "the sheet does not belong to this center's paper"
+        elif actual != item.sha256:
+            problem = "the sheet does not match its own hash"
+        elif cand not in anchored:
+            problem = "no hash for this candidate was recorded on-chain"
+        elif anchored[cand] != actual:
+            problem = "the sheet differs from the hash recorded on-chain"
+
+        if problem:
+            status = db.save_result(center_id, cand or "?", actual, json.dumps(sheet), False, None, None, None, None, problem)
+            counts["conflicts" if status == "conflict" else "already_stored" if status == "same" else "unverified"] += 1
+            continue
+        g = grading.score(sheet.get("answers", {}), answer_key)
+        status = db.save_result(center_id, cand, actual, json.dumps(sheet), True, g["score"], g["correct"], g["wrong"], g["blank"], None)
+        counts["conflicts" if status == "conflict" else "already_stored" if status == "same" else "scored"] += 1
+    return counts
+
+
+@app.get("/results")
+def results_summary():
+    rows = db.list_results()
+    by_center: dict = {}
+    for r in rows:
+        c = by_center.setdefault(r["center_id"], {"center_id": r["center_id"], "sheets": 0, "verified": 0, "scores": []})
+        c["sheets"] += 1
+        if r["verified"]:
+            c["verified"] += 1
+            c["scores"].append(r["score"])
+    out = []
+    for c in by_center.values():
+        sc = c.pop("scores")
+        c.update(unverified=c["sheets"] - c["verified"], average=round(sum(sc) / len(sc), 1) if sc else None,
+                 highest=max(sc) if sc else None, lowest=min(sc) if sc else None)
+        out.append(c)
+    correct_mark, wrong_mark = grading.marks()
+    return {"marking": {"correct": correct_mark, "wrong": wrong_mark, "blank": 0}, "centers": out}
+
+
+@app.get("/results/{center_id}")
+def results_for_center(center_id: str):
+    require_record(center_id)
+    return {"center_id": center_id, "candidates": db.list_results(center_id)}
 
 
 @app.get("/status/{center_id}")

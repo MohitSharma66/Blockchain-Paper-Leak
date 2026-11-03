@@ -1,0 +1,9 @@
+Roster for center_015: 5 candidates -> /app/printer-agent/devices/center_015/roster_center_015.json
+Hand each candidate their slip. The codes are shown ONLY now; the file keeps salted hashes.
+
+candidate id   access code
+015-0001       4UCRLMP2
+015-0002       CSHX9GTX
+015-0003       N9YGXSXL
+015-0004       JTZPLCB9
+015-0005       MCE6UYEV

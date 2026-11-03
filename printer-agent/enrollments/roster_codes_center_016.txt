@@ -1,0 +1,9 @@
+Roster for center_016: 5 candidates -> /app/printer-agent/devices/center_016/roster_center_016.json
+Hand each candidate their slip. The codes are shown ONLY now; the file keeps salted hashes.
+
+candidate id   access code
+016-0001       AUAZHMPZ
+016-0002       9W4335JJ
+016-0003       BAFHEH8P
+016-0004       LZUQE3WG
+016-0005       Q3QLQT57

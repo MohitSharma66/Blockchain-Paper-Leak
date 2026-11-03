@@ -31,6 +31,13 @@ Run everything from the project root (the folder with `compose.yaml`).
 `chainctl.py --help`: status, validators, vote-add / vote-remove, rotate, stop / start, resilience.
 Resilience demo: 7 validators tolerate 2 offline; stopping a 3rd halts the chain; restarting restores it.
 
+## One node per center
+Every center should have its own node (it verifies every block); only a small committee votes.
+`python chain/chainctl.py add-node --up-to 12` (or `add-node 7 9`) adds non-validating nodes to the RUNNING chain:
+same genesis, new keys, next free IP and port. Nothing is wiped and existing nodes keep running; the apps
+override is regenerated so `new-exam-center.cmd` finds the new node. `status` shows them as validator "no".
+`vote-add <n>` or `rotate` then lets chosen ones vote. About 0.5 GB of RAM per node: check Docker Desktop's memory limit.
+
 ## Scale (for the report)
 QBFT needs more than 2/3 of validators online (tolerates f = floor((N-1)/3)) and each block costs O(N^2) messages.
 7 nodes: trivial. Hundreds: slow. About 6,000 centers (~36 million messages per round) is not realistic as a flat validator set.
@@ -50,6 +57,9 @@ zero-fee branch via mock).
 Unverified until you run it: Besu accepting the genesis and flags, key-file format, node discovery over fixed IPs,
 `qbft_*` votes, the resilience test, RAM use (~0.5-1 GB per node; try `--centers 4` if tight; `BESU_OPTS` sets the heap).
 If a node will not start: `docker logs neet-node-board` and send me the first error lines.
+
+set BOARD_PRIVATE_KEY=.
+set CHAIN_RPC_URL=http://127.0.0.1:8545
 
 to deploy the contract
 npx hardhat run contracts/deploy.js --network private
@@ -73,5 +83,10 @@ and restart backend if need be
 docker compose restart backend
 
 for any backend changes
-docker compose up --build -d backend
+docker compose --project-directory . -f compose.yaml -f chain\network\docker-compose.chain.yml -f chain\network\docker-compose.apps.yml up -d --build backend
 python scripts/migrate_secrets_to_vault.py
+
+for adding
+python chain/chainctl.py add-node --up-to 12
+for rotating
+python chain/chainctl.py rotate --size 3 --seed exam-2026-11-02
