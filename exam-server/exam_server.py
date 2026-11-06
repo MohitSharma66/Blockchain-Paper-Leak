@@ -6,20 +6,25 @@ One of these runs per exam center, on that center's own LAN. It is the online co
 printer agent and uses the SAME device identity (same folder, same keys):
 
     1. waits until the board has released the key on-chain (the time-lock),
-    2. downloads the encrypted question payload, checks it against the hash the board anchored
+    2. downloads the board's candidate list and checks it against the hash the board anchored on-chain
+       (custody stage ROSTER): the center cannot add or swap candidates,
+    3. downloads the encrypted question payload, checks it against the hash the board anchored
        on-chain (custody stage ONLINE_PAYLOAD), unwraps the AES key with this device's private
        RSA key and decrypts the paper IN MEMORY ONLY,
-    3. serves it to candidates on the center's network, shuffled differently per candidate,
+    4. serves it to candidates on the center's network, shuffled differently per candidate,
        with a server-side timer and saved answers,
-    4. when a candidate submits (or time runs out), builds the answer sheet, SHA-256 hashes it
-       and records the hash on-chain (custody stage ANSWERS:<candidate>). The answers themselves
-       stay on the center's disk; the chain proves later that a sheet was not altered.
+    5. when a candidate submits (or time runs out), builds and saves the answer sheet and its SHA-256.
+       After the exam ends, ONE transaction records the Merkle root of all sheets on-chain (custody stage
+       ANSWERS_ROOT:<number of sheets>). Each candidate's receipt has their sheet hash and, once the root is
+       recorded, a Merkle proof that the sheet is inside it. The answers themselves stay on the center's disk;
+       the chain proves later that no sheet was added, altered or dropped.
 
 The server never holds the answer key. Grading is done by the board afterwards.
 
 Commands
-    python exam_server.py roster --center center_001 --count 30      # make candidate IDs + access codes
     python exam_server.py run    --center center_001 --rpc-url http://127.0.0.1:8546
+    python exam_server.py roster --center center_001 --count 30      # DEMO ONLY: a center-made list, used only
+                                                                      # with `run --allow-local-roster`
 
 Candidate page: http://<this machine>:8080/
 """
@@ -28,7 +33,6 @@ import hashlib
 import hmac
 import json
 import os
-import queue
 import random
 import secrets
 import sys
@@ -65,8 +69,60 @@ LOCKOUT_SECONDS = 30
 # roster
 # ---------------------------------------------------------------------
 
-def _code_hash(salt: str, candidate_id: str, code: str) -> str:
+KDF_ITERATIONS = 20_000
+KDF_NAME = f"pbkdf2-sha256-{KDF_ITERATIONS}"
+
+
+def _code_hash(salt: str, candidate_id: str, code: str, kdf: str | None = None) -> str:
+    """Must match backend/roster.py code_hash(). `kdf` comes from the roster file; none = the old plain SHA-256."""
+    if kdf and kdf.startswith("pbkdf2-sha256-"):
+        return hashlib.pbkdf2_hmac("sha256", f"{candidate_id}|{code.strip().upper()}".encode(), salt.encode(),
+                                   int(kdf.rsplit("-", 1)[1])).hex()
     return hashlib.sha256(f"{salt}|{candidate_id}|{code.strip().upper()}".encode()).hexdigest()
+
+
+def roster_hash(rf: dict) -> str:
+    """Must match backend/roster.py roster_hash()."""
+    return hashlib.sha256(json.dumps(rf, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+# Merkle tree over the sheet hashes. Must match backend/grading.py.
+def _leaf(h_hex: str) -> bytes:
+    return hashlib.sha256(b"\x00" + bytes.fromhex(h_hex)).digest()
+
+
+def _node(left: bytes, right: bytes) -> bytes:
+    return hashlib.sha256(b"\x01" + left + right).digest()
+
+
+def _levels(hashes: list) -> list:
+    level = [_leaf(h) for h in sorted(set(hashes))]
+    levels = [level]
+    while len(level) > 1:
+        level = [_node(level[i], level[i + 1]) if i + 1 < len(level) else level[i] for i in range(0, len(level), 2)]
+        levels.append(level)
+    return levels
+
+
+def merkle_root(hashes: list) -> str:
+    return _levels(hashes)[-1][0].hex()
+
+
+def merkle_proofs(hashes: list) -> dict:
+    ordered = sorted(set(hashes))
+    levels = _levels(ordered)
+    out = {}
+    for i, h in enumerate(ordered):
+        idx, proof = i, []
+        for level in levels[:-1]:
+            if idx % 2 == 0:
+                if idx + 1 < len(level):
+                    proof.append(["R", level[idx + 1].hex()])
+            else:
+                proof.append(["L", level[idx - 1].hex()])
+            idx //= 2
+        out[h] = proof
+    return out
 
 
 def roster_path(args) -> Path:
@@ -84,10 +140,12 @@ def cmd_roster(args):
     for i in range(1, args.count + 1):
         cid = f"{num}-{i:04d}"
         code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
-        entries[cid] = _code_hash(salt, cid, code)
+        entries[cid] = _code_hash(salt, cid, code, KDF_NAME)
         slips.append((cid, code))
-    pa.private_file(path, json.dumps({"center": args.center, "salt": salt, "candidates": entries}, indent=2).encode())
-    print(f"Roster for {args.center}: {args.count} candidates -> {path}")
+    pa.private_file(path, json.dumps({"center": args.center, "kdf": KDF_NAME, "salt": salt, "candidates": entries},
+                                     indent=2).encode())
+    print(f"DEMO roster for {args.center} (made here, NOT by the board): {args.count} candidates -> {path}")
+    print("It is used only if you start the server with --allow-local-roster and the board has not anchored a list.")
     print("Hand each candidate their slip. The codes are shown ONLY now; the file keeps salted hashes.\n")
     print(f"{'candidate id':<14} access code")
     for cid, code in slips:
@@ -147,18 +205,23 @@ class Exam:
         self.payload: dict | None = None
         self.starts_at = 0
         self.ends_at = 0
-        self.duration = int(args.duration_minutes * 60)
+        self.duration = int((args.duration_minutes or DEFAULT_DURATION_MIN) * 60)   # the board's value replaces it
+        self._mode_checked = False
         self._ref = (0, time.time())
 
         self.data_dir = Path(args.data_dir).resolve()
         (self.data_dir / "sheets").mkdir(parents=True, exist_ok=True)
         self.secret = self._load_secret()
-        self.roster = self._load_roster()
+        self.roster: dict | None = None                    # the board's candidate list, once verified against the chain
+        self.roster_msg = "Waiting for the board's candidate list."
+        self.sealed = False                                # set when the Merkle root is being built: no new sheets
+        self.root_file = self.data_dir / f"answers_root_{self.center}.json"
+        self.root_record = json.loads(self.root_file.read_text()) if self.root_file.exists() else None
+        self._last_root_try = 0.0
+        self._root_error: str | None = None
         self.sessions: dict[str, str] = {}                 # token -> candidate id
         self.state: dict[str, dict] = {}                   # candidate id -> {answers, submitted, ...}
         self.bad: dict[str, list] = {}                     # candidate id -> [count, locked_until]
-        self.anchor_q: "queue.Queue[str]" = queue.Queue()
-        self.closed_seen_at: float | None = None
         self.pushed_marker = self.data_dir / f"results_sent_{self.center}"
         self.results_sent = self.pushed_marker.exists()
         self._last_push_try = 0.0
@@ -175,11 +238,49 @@ class Exam:
         pa.private_file(p, s.hex().encode())
         return s
 
-    def _load_roster(self) -> dict:
+    def _ensure_roster(self):
+        """
+        Get the board's candidate list: the file must hash to the value the board wrote on-chain (ROSTER).
+        A copy cached on disk is re-checked against the chain every time the server starts.
+        """
+        c = self.center
+        log = self.contract.functions.getCustodyLog(c).call()
+        board = self.contract.functions.examBoard().call()
+        anchored = [bytes(e[3]).hex() for e in log if e[0] == "ROSTER" and e[1].lower() == board.lower()]
         p = roster_path(self.args)
-        if not p.exists():
-            sys.exit(f"No roster at {p}. Create one first:  python exam_server.py roster --center {self.center} --count N")
-        return json.loads(p.read_text())
+        if not anchored:
+            if self.args.allow_local_roster and p.exists():
+                self.roster = json.loads(p.read_text())
+                print("   WARNING: using the center's own roster file (--allow-local-roster). Demo use only.")
+                return
+            self.roster_msg = "Waiting for the board's candidate list (it is not on the chain yet)."
+            return
+        want = anchored[0]
+        rf = None
+        if p.exists():
+            try:
+                cached = json.loads(p.read_text())
+                if roster_hash(cached) == want:
+                    rf = cached
+            except ValueError:
+                pass
+        if rf is None:
+            try:
+                r = requests.get(f"{self.args.api_url}/roster-file/{c}", timeout=30)
+                r.raise_for_status()
+                rf = r.json()
+            except (requests.RequestException, ValueError) as e:
+                self.roster_msg = f"Could not download the candidate list from the board yet: {e}"
+                return
+            if roster_hash(rf) != want:
+                self._fail("ABORT: the candidate list does not match the hash the board recorded on-chain.")
+                return
+            pa.private_file(p, json.dumps(rf, indent=2).encode())
+        if rf.get("center") != c or not rf.get("candidates"):
+            self._fail("ABORT: the candidate list is not for this center.")
+            return
+        self.roster = rf
+        print(f"   candidate list verified against the on-chain hash ({len(rf['candidates'])} candidates)")
 
     def _replay_journal(self):
         p = self.data_dir / f"journal_{self.center}.jsonl"
@@ -201,7 +302,7 @@ class Exam:
                 st["submitted"] = e["sheet"]
 
     def _st(self, cand: str) -> dict:
-        return self.state.setdefault(cand, {"answers": {}, "submitted": None, "tx": None, "anchor_error": None, "started": False})
+        return self.state.setdefault(cand, {"answers": {}, "submitted": None, "started": False})
 
     def _log(self, **e):
         self.journal.write(json.dumps({"t": int(time.time()), **e}) + "\n")
@@ -228,6 +329,18 @@ class Exam:
             try:
                 self.sync_clock()
                 st = pa.get_state(self.contract, self.center)
+                if st["registered"] and not self._mode_checked:
+                    mode, minutes = pa.exam_mode(self.contract, self.center)
+                    if mode == "offline":
+                        self._fail(f"ABORT: {self.center} is registered for an OFFLINE (printed) exam. This server "
+                                   f"does not run it. Start the printer instead: scripts\\new-center-device.cmd "
+                                   f"{self.center} offline")
+                        return
+                    if minutes:
+                        self.duration = minutes * 60          # the board decides how long the exam is
+                    self._mode_checked = True
+                if st["registered"] and self.roster is None and self.payload is None:
+                    self._ensure_roster()
                 if self.phase in ("waiting", "loading", "error") and self.payload is None:
                     if not st["registered"]:
                         msg = "Waiting for the board to register this center."
@@ -237,6 +350,8 @@ class Exam:
                     elif not st["released"]:
                         when = time.strftime("%H:%M:%S", time.localtime(st["start"]))
                         msg = f"The paper is locked until the exam starts (chain start time {when})."
+                    elif self.roster is None:
+                        msg = self.roster_msg if self.phase != "error" else None
                     else:
                         msg = None
                         self._load_paper(st)
@@ -319,14 +434,12 @@ class Exam:
             self._maybe_push_sheets()
 
     def _maybe_push_sheets(self):
-        """After the exam: once every sheet is recorded on-chain (or 2 minutes have passed), send the sheets to the board."""
+        """After the exam: record the Merkle root on-chain, then send the sheets (with proofs) to the board."""
         if self.results_sent:
             return
-        now = time.time()
-        if self.closed_seen_at is None:
-            self.closed_seen_at = now
-        if self.anchor_q.unfinished_tasks and now - self.closed_seen_at < 120:
+        if not self._maybe_anchor_root():
             return
+        now = time.time()
         if now - self._last_push_try < 10:
             return
         self._last_push_try = now
@@ -339,8 +452,10 @@ class Exam:
         try:
             msg = pa_batch_message(self.center, [s["sha256"] for s in sheets])
             sig = "0x" + self.dev["account"].sign_message(encode_defunct(text=msg)).signature.hex().removeprefix("0x")
+            proofs = (self.root_record or {}).get("proofs", {})
+            items = [{"sheet": s["sheet"], "sha256": s["sha256"], "proof": proofs.get(s["sha256"])} for s in sheets]
             r = requests.post(f"{self.args.api_url}/sheets/{self.center}",
-                              json={"sheets": sheets, "signature": sig}, timeout=60)
+                              json={"sheets": items, "signature": sig}, timeout=60)
             if not r.ok:
                 raise RuntimeError(f"board answered {r.status_code}: {r.text[:200]}")
             summary = r.json()
@@ -362,12 +477,14 @@ class Exam:
     # ---- candidates
     def login(self, candidate_id: str, code: str) -> str:
         cid = candidate_id.strip()
+        if self.roster is None:
+            raise PermissionError("The candidate list has not been loaded yet.")
         with self.lock:
             fails = self.bad.get(cid, [0, 0.0])
             if fails[1] > time.time():
                 raise PermissionError(f"Too many wrong codes. Try again in {int(fails[1] - time.time()) + 1} s.")
             expect = self.roster["candidates"].get(cid)
-            got = _code_hash(self.roster["salt"], cid, code)
+            got = _code_hash(self.roster["salt"], cid, code, self.roster.get("kdf"))
             if not expect or not hmac.compare_digest(expect, got):
                 fails[0] += 1
                 if fails[0] >= MAX_BAD_LOGINS:
@@ -422,6 +539,8 @@ class Exam:
             st = self._st(cand)
             if st["submitted"]:
                 return st["submitted"]
+            if self.sealed or self.root_record is not None:
+                raise ValueError("The exam is closed; no more sheets can be submitted.")
             sheet = {
                 "center": self.center,
                 "variant_id": self.payload["variant_id"],
@@ -437,30 +556,55 @@ class Exam:
             (self.data_dir / "sheets" / f"{cand}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
             st["submitted"] = record
             self._log(ev="submit", cand=cand, sheet=record)
-        self.anchor_q.put(cand)
         return record
 
-    # ---- on-chain anchoring (background thread)
-    def anchor_worker(self):
-        while True:
-            cand = self.anchor_q.get()
-            for attempt in range(6):
-                try:
-                    with self.lock:
-                        digest = self.state[cand]["submitted"]["sha256"]
-                    tx = pa.send(self.w3, self.dev["account"],
-                                 self.contract.functions.logCustodyEvent(
-                                     self.center, f"ANSWERS:{cand}", bytes.fromhex(digest)))
-                    with self.lock:
-                        self.state[cand]["tx"] = tx
-                        self.state[cand]["anchor_error"] = None
-                    print(f"   anchored sheet of {cand} on-chain (tx {tx[:12]}...)")
-                    break
-                except Exception as e:
-                    with self.lock:
-                        self.state[cand]["anchor_error"] = str(e)[:200]
-                    time.sleep(2 * (attempt + 1))
-            self.anchor_q.task_done()
+    # ---- on-chain anchoring: ONE transaction per center, after the exam
+    def _maybe_anchor_root(self) -> bool:
+        """
+        Records the Merkle root of every submitted sheet on-chain (custody stage ANSWERS_ROOT:<count>).
+        Returns True when there is nothing left to record (done, or no sheets at all).
+        Called after _auto_submit_all(), so every candidate who started has a sheet. Once the list of sheets is
+        read, `sealed` stops further submissions so the root always covers exactly the stored sheets.
+        """
+        if self.root_record is not None:
+            return True
+        if self._root_error and self._root_error.startswith("ABORT"):
+            return False
+        now = time.time()
+        if now - self._last_root_try < 5:
+            return False
+        self._last_root_try = now
+        with self.lock:
+            self.sealed = True
+            hashes = [st["submitted"]["sha256"] for st in self.state.values() if st["submitted"]]
+        if not hashes:
+            return True
+        root = merkle_root(hashes)
+        n = len(set(hashes))
+        me = self.dev["account"].address
+        try:
+            log = self.contract.functions.getCustodyLog(self.center).call()
+            mine = [e for e in log if e[0].startswith("ANSWERS_ROOT:") and e[1].lower() == me.lower()]
+            if mine:                                             # we already did this before a restart
+                if bytes(mine[0][3]).hex() != root:
+                    self._root_error = "ABORT: a different answers root is already recorded on-chain for this center."
+                    print(self._root_error)
+                    return False
+                tx = None
+            else:
+                tx = pa.send(self.w3, self.dev["account"],
+                             self.contract.functions.logCustodyEvent(self.center, f"ANSWERS_ROOT:{n}", bytes.fromhex(root)))
+        except Exception as e:
+            self._root_error = str(e)[:200]
+            print(f"   could not record the answers root on-chain yet ({self._root_error}); will retry")
+            return False
+        rec = {"root": root, "count": n, "tx": tx, "proofs": merkle_proofs(hashes)}
+        self.root_file.write_text(json.dumps(rec), encoding="utf-8")
+        with self.lock:
+            self.root_record = rec
+            self._root_error = None
+        print(f"   recorded the Merkle root of {n} answer sheets on-chain" + (f" (tx {tx[:12]}...)" if tx else ""))
+        return True
 
 
 # ---------------------------------------------------------------------
@@ -499,7 +643,10 @@ def build_app(exam: Exam):
             return {"center": exam.center, "phase": exam.phase, "message": exam.message,
                     "starts_at": exam.starts_at, "ends_at": exam.ends_at,
                     "now": exam.now(), "exam_name": exam.payload["exam_name"] if exam.payload else None,
-                    "anchoring_queue": exam.anchor_q.qsize(), "results_sent": exam.results_sent}
+                    "roster_ready": exam.roster is not None,
+                    "sheets_root": exam.root_record["root"] if exam.root_record else None,
+                    "sheets_count": exam.root_record["count"] if exam.root_record else None,
+                    "results_sent": exam.results_sent}
 
     @app.post("/api/login")
     def login(body: Login):
@@ -531,7 +678,10 @@ def build_app(exam: Exam):
     def submit(cand: str = Depends(me)):
         if exam.phase not in ("open", "closed"):
             raise HTTPException(409, "The exam is not open.")
-        r = exam.submit(cand)
+        try:
+            r = exam.submit(cand)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
         return {"sha256": r["sha256"], "submitted_at": r["sheet"]["submitted_at"]}
 
     @app.get("/api/receipt")
@@ -539,8 +689,12 @@ def build_app(exam: Exam):
         st = exam.state.get(cand)
         if not st or not st["submitted"]:
             raise HTTPException(404, "Not submitted yet.")
-        return {"sha256": st["submitted"]["sha256"], "submitted_at": st["submitted"]["sheet"]["submitted_at"],
-                "tx": st["tx"], "anchor_error": st["anchor_error"]}
+        sha = st["submitted"]["sha256"]
+        rec = exam.root_record
+        return {"sha256": sha, "submitted_at": st["submitted"]["sheet"]["submitted_at"],
+                "anchored": rec is not None, "root": rec["root"] if rec else None,
+                "proof": rec["proofs"].get(sha) if rec else None, "sheets_count": rec["count"] if rec else None,
+                "tx": rec["tx"] if rec else None, "anchor_error": exam._root_error}
 
     @app.get("/", include_in_schema=False)
     def page():
@@ -554,9 +708,10 @@ def cmd_run(args):
     w3, contract = pa.connect(args)
     exam = Exam(args, dev, w3, contract)
     print(f"Exam server for {args.center}  device {dev['account'].address}  chain {args.rpc_url}")
-    print(f"  {len(exam.roster['candidates'])} candidates on the roster; duration {args.duration_minutes} min; http://0.0.0.0:{args.port}/")
+    print(f"  enrollment fingerprint {pa.device_fingerprint(dev)}  (the board asks for this when enrolling)")
+    print(f"  candidate list and exam duration come from the board (checked against the chain); "
+          f"http://0.0.0.0:{args.port}/")
     threading.Thread(target=exam.lifecycle, daemon=True).start()
-    threading.Thread(target=exam.anchor_worker, daemon=True).start()
     import uvicorn
     uvicorn.run(build_app(exam), host=args.host, port=args.port, log_level="warning")
 
@@ -583,8 +738,11 @@ def main():
     s.add_argument("--api-url", default=(os.environ.get("BACKEND_API_URL") or "http://127.0.0.1:8000").rstrip("/"))
     s.add_argument("--host", default="0.0.0.0")
     s.add_argument("--port", type=int, default=8080)
-    s.add_argument("--duration-minutes", type=float, default=DEFAULT_DURATION_MIN)
+    s.add_argument("--duration-minutes", type=float, default=None,
+                   help="only used for a center registered before modes existed; otherwise the board's value is used")
     s.add_argument("--poll", type=float, default=3.0)
+    s.add_argument("--allow-local-roster", action="store_true",
+                   help="DEMO ONLY: accept a roster made on this machine when the board anchored none")
     s.add_argument("--data-dir", default=str(HERE / "data"), help="answers, journal, sheets (persistent)")
     s.set_defaults(func=cmd_run)
 

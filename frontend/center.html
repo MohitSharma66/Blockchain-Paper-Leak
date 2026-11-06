@@ -92,7 +92,10 @@
       return;
     }
 
-    if (!d.registered) {
+    if (d.exam_mode === "online") {
+      $("progress").style.display = "none";
+      setMsg(`${d.center_id} is an ONLINE exam center: nothing is printed here. Use the online page instead (exam-center page).`, "err");
+    } else if (!d.registered) {
       $("progress").style.display = "none";
       setMsg(`${d.center_id}: not registered with the exam board yet.`, "wait");
     } else if (!d.key_released) {

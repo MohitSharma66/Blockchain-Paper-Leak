@@ -2,11 +2,14 @@
 setlocal EnableExtensions
 
 rem Starts ONE online-exam center in its own container: it creates the device identity (kept in a Docker
-rem volume), a candidate roster, and runs the exam server. Re-running for the same center is refused.
-rem Usage: scripts\new-exam-center.cmd center_013 [candidates] [exam-minutes]
+rem volume) and runs the exam server. The candidate list is NOT made here: the board creates it (board page,
+rem "Candidate lists") and the exam server downloads it and checks it against the blockchain.
+rem Re-running for the same center is refused.
+rem The exam length is set by the board at generation. [exam-minutes] only matters for an old center that has none.
+rem Usage: scripts\new-exam-center.cmd center_013 [exam-minutes]
 
 if "%~1"=="" (
-    echo Usage: scripts\new-exam-center.cmd center_013 [candidates] [exam-minutes]
+    echo Usage: scripts\new-exam-center.cmd center_013 [exam-minutes]
     exit /b 2
 )
 
@@ -17,10 +20,8 @@ if errorlevel 1 (
     exit /b 2
 )
 
-set "ROSTER_COUNT=%~2"
-if "%ROSTER_COUNT%"=="" set "ROSTER_COUNT=30"
-set "MINUTES=%~3"
-if "%MINUTES%"=="" set "MINUTES=180"
+set "DURATION_ARG="
+if not "%~2"=="" set "DURATION_ARG=--duration-minutes %~2"
 
 set "NUM=%CENTER:~-3%"
 rem Port = 8080 + center number (center_001 -> 8081, center_013 -> 8093). The 1xxx trick avoids octal parsing of 013.
@@ -83,11 +84,10 @@ echo Starting %CENTER% on chain node %RPC_URL% ...
 
 docker compose run -d --no-deps --name "%CONTAINER%" ^
     -p 127.0.0.1:%PORT%:8080 ^
-    -e ROSTER_COUNT=%ROSTER_COUNT% ^
     -e CHAIN_RPC_URL=%RPC_URL% ^
     --volume "%IDVOL%:/app/printer-agent/devices/%CENTER%" ^
     --volume "%DATAVOL%:/data" ^
-    exam-center-generic run --center "%CENTER%" --home /app/printer-agent/devices --rpc-url "%RPC_URL%" --api-url http://backend:8000 --port 8080 --duration-minutes %MINUTES% --data-dir /data
+    exam-center-generic run --center "%CENTER%" --home /app/printer-agent/devices --rpc-url "%RPC_URL%" --api-url http://backend:8000 --port 8080 %DURATION_ARG% --data-dir /data
 
 if errorlevel 1 (
     echo Failed to create the exam container.
@@ -106,8 +106,7 @@ echo Identity volume: %IDVOL%
 echo.
 echo Next:
 echo   1. Upload printer-agent\enrollments\enrollment_%CENTER%.json on the board page ("Enroll printers...").
-echo   2. Candidate IDs and access codes: printer-agent\enrollments\roster_codes_%CENTER%.txt
-echo      ^(print the slips, then delete that file; the container keeps only hashes^).
+echo   2. Create the candidate list on the board page ^("Candidate lists"^) and download the admit-card codes.
 echo   3. Register the center on the board page. Watch it at http://localhost:8000/ui/online.html?center=%CENTER%
 echo   Logs: docker logs %CONTAINER%
 

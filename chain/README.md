@@ -90,3 +90,5 @@ for adding
 python chain/chainctl.py add-node --up-to 12
 for rotating
 python chain/chainctl.py rotate --size 3 --seed exam-2026-11-02
+
+scripts\new-exam-center.cmd center_001

@@ -2,8 +2,8 @@
 set -eu
 
 # Exam-server container bootstrap. Only does work for `run`; other sub-commands (roster ...) pass straight through.
-# First start of a center: create its device identity in the center's Docker volume, publish the public
-# enrollment file, and create a candidate roster. Later starts reuse all of it.
+# First start of a center: create its device identity in the center's Docker volume and publish the public
+# enrollment file. Later starts reuse it.
 if [ "${1:-}" != "run" ]; then
   exec python /app/exam-server/exam_server.py "$@"
 fi
@@ -34,11 +34,6 @@ if [ -f "$DEVICE_DIR/enrollment_$CENTER.json" ]; then
   cp "$DEVICE_DIR/enrollment_$CENTER.json" "/exports/enrollment_$CENTER.json"
 fi
 
-if [ ! -s "$DEVICE_DIR/roster_$CENTER.json" ]; then
-  echo "Creating a roster of ${ROSTER_COUNT:-30} candidates."
-  python /app/exam-server/exam_server.py roster --center "$CENTER" --home "$HOME_DIR" --count "${ROSTER_COUNT:-30}" \
-    | tee "/exports/roster_codes_$CENTER.txt"
-  echo "Access codes were also saved to /exports/roster_codes_$CENTER.txt (print the slips, then delete that file)."
-fi
+# The candidate list is created by the board; the exam server downloads it and verifies it against the chain.
 
 exec python /app/exam-server/exam_server.py "$@"

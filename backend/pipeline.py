@@ -388,14 +388,25 @@ def _next_index() -> int:
     return highest + 1
 
 
-def generate_all(paper: dict, num_variants: int) -> list[dict]:
+def generate_all(paper: dict, num_variants: int, mode: str = "offline", duration_minutes: int | None = None) -> list[dict]:
     """
+    mode "offline": a PDF per variant, printed at the center. mode "online": a structured question payload per
+    variant (no PDF), served by the center's exam server; `duration_minutes` is how long candidates get.
     One variant per center (variant_N <-> center_NNN). Returns one summary
     dict per center. If anything fails part-way, the centers of this batch that
     were already created are rolled back, so no record ever points at a missing
     blob or key.
     """
     validate_paper(paper)
+    if mode not in ("online", "offline"):
+        raise ValueError("Exam mode must be 'online' or 'offline'.")
+    if mode == "online":
+        if duration_minutes is None:
+            duration_minutes = 180
+        if not isinstance(duration_minutes, int) or not 5 <= duration_minutes <= 720:
+            raise ValueError("The exam duration must be between 5 and 720 minutes.")
+    else:
+        duration_minutes = None
     if not isinstance(num_variants, int) or not 1 <= num_variants <= MAX_VARIANTS:
         raise ValueError(f"Number of variants must be between 1 and {MAX_VARIANTS}.")
 
@@ -433,23 +444,23 @@ def generate_all(paper: dict, num_variants: int) -> list[dict]:
                 raise ValueError("Could not generate enough distinct variants from this paper.")
             used_fingerprints.add(fingerprint)
 
-            pdf_bytes = _render_pdf_bytes(variant)
             answers = [{"id": q["id"], "correct_index": q["correct_index"]} for q in variant["questions"]]
-
             key = AESGCM.generate_key(bit_length=256)
-            blob = _encrypt(pdf_bytes, key)
+            # Random suffixes: a re-run never silently overwrites an older object in the bucket.
+            if mode == "offline":
+                blob = _encrypt(_render_pdf_bytes(variant), key)
+                object_key = f"blobs/{center_id}-{secrets.token_hex(4)}.enc"
+                online_hash = online_key = None
+            else:
+                # Online: the encrypted question payload IS the center's registered blob; no PDF is made.
+                blob = _encrypt(_online_payload(variant), key)
+                object_key = online_key = f"online/{center_id}-{secrets.token_hex(4)}.enc"
+                online_hash = hashlib.sha256(blob).hexdigest()
             blob_hash = hashlib.sha256(blob).hexdigest()
-            online_blob = _encrypt(_online_payload(variant), key)    # same key, fresh random nonce
-            online_hash = hashlib.sha256(online_blob).hexdigest()
-            online_key = f"online/{center_id}-{secrets.token_hex(4)}.enc"
-            # Random suffix: a re-run never silently overwrites an older object in the bucket.
-            object_key = f"blobs/{center_id}-{secrets.token_hex(4)}.enc"
 
             # Record goes in last, so it only exists once everything it points at does.
             store.put(object_key, blob)
             created.append((center_id, variant_id, object_key))
-            store.put(online_key, online_blob)
-            created.append((center_id, variant_id, online_key))
             keystore.store_key(center_id, key)
             keystore.store_answers(variant_id, answers)
             db.upsert_center_record(
@@ -460,6 +471,8 @@ def generate_all(paper: dict, num_variants: int) -> list[dict]:
                 blob_object_key=object_key,
                 online_blob_hash=online_hash,
                 online_object_key=online_key,
+                exam_mode=mode,
+                duration_minutes=duration_minutes,
             )
 
             results.append({
@@ -467,6 +480,8 @@ def generate_all(paper: dict, num_variants: int) -> list[dict]:
                 "variant_id": variant_id,
                 "blob_hash": blob_hash,
                 "fingerprint": fingerprint,
+                "exam_mode": mode,
+                "duration_minutes": duration_minutes,
             })
     except Exception:
         for center_id, variant_id, object_key in created:

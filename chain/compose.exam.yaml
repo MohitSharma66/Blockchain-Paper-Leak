@@ -2,8 +2,8 @@
 # Add after the other files:
 #   docker compose --project-directory . -f compose.yaml -f chain/network/docker-compose.chain.yml \
 #       -f chain/network/docker-compose.apps.yml -f chain/compose.exam.yaml up -d --build exam-center-001
-# One-time roster (candidate IDs + access codes, shown once):
-#   docker compose ... run --rm exam-center-001 roster --center center_001 --count 30
+# The candidate list is created by the board (board page, "Candidate lists"); the exam server downloads it and
+# checks it against the blockchain. No roster is made on the center.
 # Candidates open http://localhost:8081/ (center_001), 8082 (center_002), ...
 # The exam server uses the SAME device identity volume as that center's printer.
 x-exam: &exam

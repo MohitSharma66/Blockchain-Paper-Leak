@@ -85,10 +85,19 @@ def oaep():
     return padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
 
 
-def fingerprint(public_key) -> str:
+def fingerprint(public_key, address: str) -> str:
+    """
+    Covers the RSA public key AND the chain address, so changing either in an enrollment file changes it.
+    The board asks its operator to TYPE this value; it never shows its own copy first. Must match
+    backend/enrollment.py.
+    """
     der = public_key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
-    h = hashlib.sha256(der).hexdigest()[:20].upper()
+    h = hashlib.sha256(der + b"|" + address.lower().encode()).hexdigest()[:20].upper()
     return " ".join(h[i:i + 4] for i in range(0, 20, 4))
+
+
+def device_fingerprint(dev: dict) -> str:
+    return fingerprint(dev["rsa"].public_key(), dev["account"].address)
 
 
 def raw_tx_bytes(signed):
@@ -116,6 +125,12 @@ def device_dir(args) -> Path:
     return Path(args.home).resolve() / args.center if args.home else HERE / "devices" / args.center
 
 
+def cmd_fingerprint(args):
+    dev = load_device(args)
+    print(f"{args.center}  address {dev['account'].address}")
+    print(f"enrollment fingerprint: {device_fingerprint(dev)}")
+
+
 def cmd_init(args):
     d = device_dir(args)
     if d.exists() and any(d.iterdir()) and not args.force:
@@ -136,7 +151,7 @@ def cmd_init(args):
         "center_id": args.center,
         "address": account.address,
         "public_key_pem": pub_pem,
-        "fingerprint": fingerprint(pub),
+        "fingerprint": fingerprint(pub, account.address),
     }
     path = d / f"enrollment_{args.center}.json"
     path.write_text(json.dumps(enrollment, indent=2), encoding="utf-8")
@@ -146,9 +161,11 @@ def cmd_init(args):
     print(f"  key fingerprint: {enrollment['fingerprint']}")
     print(f"  enrollment file: {path}")
     print()
-    print("Upload the enrollment file on the board page (Enroll printers). The board shows a")
-    print("fingerprint for this printer: check, in person, that it matches the one above before")
-    print("registering the center. The private keys stay in this folder and never leave the device.")
+    print("Upload the enrollment file on the board page. The board will then ask its operator to TYPE the")
+    print("fingerprint above (it does not show its own): read it out to them over a separate channel, such as a")
+    print("phone call, not together with the file. The center cannot be registered until it matches.")
+    print("The fingerprint is shown again every time this device starts, and by:  printer_agent.py fingerprint")
+    print("The private keys stay in this folder and never leave the device.")
 
 
 def load_device(args) -> dict:
@@ -208,6 +225,24 @@ def get_state(contract, center_id: str) -> dict:
     registered, released, printer, expected, printed, start = contract.functions.getCenterState(center_id).call()
     return {"registered": registered, "released": released, "printer": printer,
             "expected": expected, "printed": printed, "start": start}
+
+
+def exam_mode(contract, center_id: str):
+    """
+    (mode, minutes) the board wrote on-chain for this center (custody stage EXAM_MODE:<mode>:<minutes>),
+    or (None, None) for centers registered before modes existed (those may do either).
+    """
+    log = contract.functions.getCustodyLog(center_id).call()
+    board = contract.functions.examBoard().call().lower()
+    for e in log:
+        if e[0].startswith("EXAM_MODE:") and e[1].lower() == board:
+            parts = e[0].split(":")
+            try:
+                minutes = int(parts[2]) if len(parts) > 2 else 0
+            except ValueError:
+                minutes = 0
+            return parts[1], (minutes or None)
+    return None, None
 
 
 def send(w3, account, fn) -> str:
@@ -380,6 +415,7 @@ def cmd_run(args):
     mode = ("DRY RUN" if args.dry_run else "REAL PRINTING" if (args.print or args.print_cmd) else "SIMULATED printing")
     print(f"Printer agent for {args.center}  [{mode}]")
     print(f"  address {me}  (balance {Web3.from_wei(balance, 'ether')} ETH)  chain {args.rpc_url}")
+    print(f"  enrollment fingerprint {device_fingerprint(dev)}  (the board asks for this when enrolling)")
     free_gas = w3.eth.get_block("latest").get("baseFeePerGas") == 0
     if free_gas:
         print("  free-gas chain: no funds needed")
@@ -398,6 +434,9 @@ def cmd_run(args):
                 msg = "waiting: this center is not registered yet"
             elif st["printer"].lower() != me.lower():
                 sys.exit(f"ABORT: the printer registered for {args.center} is {st['printer']}, not this device.")
+            elif exam_mode(contract, args.center)[0] == "online":
+                sys.exit(f"ABORT: {args.center} is registered for an ONLINE exam, so nothing is printed. "
+                         f"Run the exam server instead: scripts\\new-center-device.cmd {args.center} online")
             elif not st["released"]:
                 when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["start"]))
                 msg = f"waiting for key release (exam start {when}, chain time)"
@@ -434,6 +473,10 @@ def main():
     common(i)
     i.add_argument("--force", action="store_true", help="replace an existing identity")
     i.set_defaults(func=cmd_init)
+
+    fp = sub.add_parser("fingerprint", help="show this device's enrollment fingerprint (the board asks you to type it)")
+    common(fp)
+    fp.set_defaults(func=cmd_fingerprint)
 
     f = sub.add_parser("fund-local", help="Hardhat only: send 0.1 test ETH to this device")
     common(f)

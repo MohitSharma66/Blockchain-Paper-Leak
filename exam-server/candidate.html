@@ -199,17 +199,22 @@ async function submit(auto) {
 async function showReceipt(auto) {
   $("timer").hidden = true;
   const hash = el("code", { textContent: paper.submitted.sha256 });
-  const chain = el("div", { className: "msg wait", textContent: "Recording your answer sheet on the blockchain..." });
+  const chain = el("div", { className: "msg wait", textContent: "Waiting for the exam to end. Then the center records all answer sheets on the blockchain and the proof for your sheet appears here." });
   view(el("div", { className: "card center" }, el("h2", { textContent: auto ? "Time is up. Your answers were submitted." : "Submitted" }),
-    el("p", { className: "sub", textContent: "Your answer sheet is final. This fingerprint of it will be written to the blockchain. Keep it as your receipt." }),
+    el("p", { className: "sub", textContent: "Your answer sheet is final. When the exam ends, the center records one combined fingerprint of every sheet on the blockchain. Keep this receipt." }),
     el("label", { textContent: "Receipt (SHA-256 of your answer sheet)" }), hash, chain));
   const check = async () => {
     try {
       const r = await api("/api/receipt");
-      if (r.tx) { chain.className = "msg ok"; chain.textContent = "Recorded on the blockchain.\nTransaction: " + r.tx; return; }
+      if (r.anchored) {
+        chain.className = "msg ok";
+        chain.textContent = "Recorded on the blockchain. Your sheet is one of " + r.sheets_count + " covered by this fingerprint:\n" + r.root +
+          (r.tx ? "\nTransaction: " + r.tx : "") + "\nProof: " + JSON.stringify(r.proof) + "\nKeep this proof with your receipt.";
+        return;
+      }
       if (r.anchor_error) chain.textContent = "Recording is taking longer than usual (it will keep retrying). Your answers are safe.";
     } catch (e) {}
-    setTimeout(check, 2500);
+    setTimeout(check, 5000);
   };
   check();
 }

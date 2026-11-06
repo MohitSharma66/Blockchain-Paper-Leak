@@ -9,6 +9,8 @@ Board endpoints:
   POST /generate                 paper JSON + number of variants -> shuffle, render, encrypt, store
   POST /enroll/{center_id}       attach a printer (chain address + RSA public key) to a center
   POST /register                 register a center on-chain (exam start in N minutes, expected copies)
+  POST /roster/{center_id}       create the candidate list + one-time access codes for an online exam (codes shown once)
+  GET  /roster/{center_id}       who is on the list (no codes) and whether it is anchored on-chain
   POST /release-key/{center_id}  wrap the AES key to the printer's public key, post it on-chain
                                  (the contract enforces the exam start time), then destroy the stored key
   GET  /centers                  all centers with live on-chain status
@@ -16,6 +18,7 @@ Board endpoints:
 
 Printer / center endpoints:
   GET  /blob/{center_id}         the encrypted blob (ciphertext only; useless without the key)
+  GET  /roster-file/{center_id}  salted code hashes of the board's candidate list (checked against the chain)
   GET  /status/{center_id}       registered? key released? copies printed / expected
 
 Other:
@@ -32,6 +35,7 @@ Run with: uvicorn app:app --reload   (from inside backend/), then open http://lo
 import asyncio
 import hashlib
 import json
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
@@ -44,11 +48,13 @@ from web3 import Web3
 
 import config
 import db
+import enrollment
 import grading
 import keystore
 import keywrap
 import pipeline
 import pdf_importer
+import roster as rosters
 from keystore import KeyStoreError
 from storage import BlobStoreError, get_blob_store
 from web3_client import PaperCustodyClient, DEPLOYMENT_PATH
@@ -206,16 +212,18 @@ async def import_answer_key(file: UploadFile = File(...), paper_json: str = Form
 class GenerateRequest(BaseModel):
     paper: dict
     num_variants: int
+    mode: str = "offline"                     # "offline" (printed at the center) or "online" (exam server)
+    duration_minutes: int | None = None       # online only: how long candidates get (default 180)
 
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
     """
-    Shuffle options, render a PDF, encrypt, store: once per variant, one variant per center.
-    The blob goes to the blob store, the AES key to the key store, nothing else is kept.
+    Shuffle options, make the PDF (offline) or the online question payload (online), encrypt, store: once per
+    variant, one variant per center. The blob goes to the blob store, the AES key to the key store.
     """
     try:
-        results = pipeline.generate_all(req.paper, req.num_variants)
+        results = pipeline.generate_all(req.paper, req.num_variants, req.mode, req.duration_minutes)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"generated": len(results), "centers": results}
@@ -224,6 +232,43 @@ def generate(req: GenerateRequest):
 # ---------------------------------------------------------------------
 # Board: list centers with live chain status
 # ---------------------------------------------------------------------
+
+def _enrollment_state(rec: dict, registered: bool) -> str:
+    """not_enrolled | awaiting_confirmation | confirmed (a center that is already registered counts as confirmed)."""
+    if not rec.get("printer_address"):
+        return "not_enrolled"
+    if registered or rec.get("enrollment_confirmed_at"):
+        return "confirmed"
+    return "awaiting_confirmation"
+
+
+def _display_fingerprint(rec: dict):
+    try:
+        return enrollment.fingerprint(rec["printer_public_key"], rec["printer_address"])
+    except Exception:
+        return rec.get("printer_fingerprint")
+
+
+def _phase(rec: dict, state: dict, chain_time, results_n: int) -> str | None:
+    """
+    Where a registered center is in its exam, in words the board page can show.
+    offline (printed): locked -> awaiting_print -> printing -> printed
+    online:            locked -> exam_ongoing -> exam_over -> results_in
+    """
+    if not state or not state["registered"]:
+        return None
+    if not state["key_released"]:
+        return "locked"
+    if rec.get("exam_mode") == "online":
+        if results_n > 0:
+            return "results_in"
+        end = state["exam_start_time"] + (rec.get("duration_minutes") or 180) * 60
+        return "exam_over" if chain_time is not None and chain_time >= end else "exam_ongoing"
+    printed, expected = state["printed_count"], state["expected_copies"]
+    if printed <= 0:
+        return "awaiting_print"
+    return "printed" if printed >= expected else "printing"
+
 
 @app.get("/centers")
 def list_centers():
@@ -242,6 +287,7 @@ def list_centers():
         client = None
 
     keys_present = keystore.centers_with_keys()
+    result_counts = db.result_counts()
 
     centers = []
     for center_id in sorted(records):
@@ -255,6 +301,7 @@ def list_centers():
 
         registered = state["registered"] if state else None
         on_chain = bool(state and registered)
+        enr_state = _enrollment_state(rec, bool(registered))
 
         centers.append({
             "center_id": center_id,
@@ -263,8 +310,14 @@ def list_centers():
             "has_key": center_id in keys_present,
             "enrolled": bool(rec.get("printer_address")),
             "online_ready": bool(rec.get("online_blob_hash")),
+            "exam_mode": rec.get("exam_mode"),
+            "duration_minutes": rec.get("duration_minutes"),
+            "phase": _phase(rec, state, chain_time, result_counts.get(center_id, 0)) if on_chain else None,
+            "roster_count": (db.roster_info(center_id) or {}).get("count", 0),
             "printer_address": rec.get("printer_address"),
-            "printer_fingerprint": rec.get("printer_fingerprint"),
+            "enrollment_state": enr_state,
+            # Not shown until confirmed: the operator must type the value from the DEVICE, not copy it from here.
+            "printer_fingerprint": _display_fingerprint(rec) if enr_state == "confirmed" else None,
             "registered": registered,
             "key_released": (state["key_released"] if on_chain else False) if state else None,
             "exam_start_time": state["exam_start_time"] if on_chain else None,
@@ -293,9 +346,10 @@ class EnrollRequest(BaseModel):
 @app.post("/enroll/{center_id}")
 def enroll_printer(center_id: str, req: EnrollRequest):
     """
-    Attach a printer to a center: its chain address (who may log prints) and its RSA public
-    key (what the AES key gets wrapped to). Returns the key's fingerprint, which the person
-    enrolling compares against the one shown on the printer itself.
+    Attach a center device to a center: its chain address (who may log events) and its RSA public
+    key (what the AES key gets wrapped to). The enrollment then waits for confirmation: the operator
+    types the fingerprint the DEVICE shows (POST /confirm-enrollment). Nothing is shown here on purpose, and
+    the center cannot be registered before that. Uploading a file again resets the confirmation.
     """
     require_record(center_id)
 
@@ -304,7 +358,7 @@ def enroll_printer(center_id: str, req: EnrollRequest):
     address = Web3.to_checksum_address(req.address)
 
     try:
-        fp = keywrap.fingerprint(req.public_key_pem)
+        fp = enrollment.fingerprint(req.public_key_pem, address)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -325,6 +379,7 @@ def enroll_printer(center_id: str, req: EnrollRequest):
         printer_address=address,
         printer_public_key=req.public_key_pem.strip(),
         printer_fingerprint=fp,
+        enrollment_confirmed_at=None,
     )
 
     funded, warning = False, None
@@ -337,8 +392,31 @@ def enroll_printer(center_id: str, req: EnrollRequest):
         except Exception as e:
             warning = f"Enrolled, but funding the printer failed: {short_error(e)}"
 
-    return {"status": "enrolled", "center_id": center_id, "address": address,
-            "fingerprint": fp, "funded": funded, "warning": warning}
+    return {"status": "awaiting_confirmation", "center_id": center_id, "address": address,
+            "funded": funded, "warning": warning}
+
+
+class ConfirmRequest(BaseModel):
+    fingerprint: str
+
+
+@app.post("/confirm-enrollment/{center_id}")
+def confirm_enrollment(center_id: str, req: ConfirmRequest):
+    """
+    The operator types the fingerprint shown by the center device. It must equal the fingerprint the board
+    computes from the enrollment it received (RSA key + chain address). A mismatch means the file changed on
+    the way, or the wrong device was read: do not register the center.
+    """
+    rec = require_record(center_id)
+    if not rec.get("printer_address"):
+        raise HTTPException(409, f"{center_id} has no enrollment to confirm. Upload its enrollment file first.")
+    expected = _display_fingerprint(rec)
+    if not enrollment.matches(req.fingerprint, expected):
+        raise HTTPException(400, "That does not match the enrollment the board received. Do not register this "
+                                 "center: have the device's operator read the fingerprint again and upload the "
+                                 "enrollment file again. If it still differs, the file was altered on the way.")
+    db.update_center_record(center_id, enrollment_confirmed_at=int(time.time()), printer_fingerprint=expected)
+    return {"status": "confirmed", "center_id": center_id}
 
 
 # ---------------------------------------------------------------------
@@ -354,7 +432,10 @@ def register_center(center_id: str, exam_start_in_minutes: float, expected_copie
     """
     record = require_record(center_id)
     if not record.get("printer_address"):
-        raise HTTPException(409, f"Enroll {center_id}'s printer before registering it.")
+        raise HTTPException(409, f"Enroll {center_id}'s center device before registering it.")
+    if not record.get("enrollment_confirmed_at"):
+        raise HTTPException(409, f"Confirm {center_id}'s enrollment first: type the fingerprint the center device "
+                                 f"shows. It is not displayed here on purpose.")
     if exam_start_in_minutes < 0.5:
         raise HTTPException(400, "Exam must start at least 0.5 minutes from now.")
     if not 1 <= expected_copies <= 1_000_000:
@@ -363,6 +444,10 @@ def register_center(center_id: str, exam_start_in_minutes: float, expected_copie
     client = require_chain()
     if client.is_registered(center_id):
         raise HTTPException(409, f"{center_id} is already registered on-chain.")
+    if record.get("exam_mode") == "online":
+        # Online: "expected copies" means candidates. Use the board's list when it exists.
+        info = db.roster_info(center_id)
+        expected_copies = info["count"] if info else max(expected_copies, 1)
 
     # Integrity: the stored blob must still be the one we generated.
     blob_bytes = get_blob_store().get(record["blob_object_key"])
@@ -387,15 +472,121 @@ def register_center(center_id: str, exam_start_in_minutes: float, expected_copie
 
     db.update_center_record(center_id, exam_start_time=exam_start_time)
 
-    # Online mode: anchor the payload hash so the center's exam server can verify what it downloads.
+    # Online mode: anchor the payload hash and the candidate list so the center's exam server can verify both.
     online_warning = None
+    mode = record.get("exam_mode")
+    notes = []
+    if mode:
+        # The center device reads this and refuses to run the wrong kind of exam.
+        stage = f"EXAM_MODE:{mode}:{record.get('duration_minutes') or 0}"
+        try:
+            client.log_custody_event(center_id, stage, hashlib.sha256(f"{center_id}|{stage}".encode()).hexdigest())
+        except Exception as e:
+            notes.append(f"recording the exam mode failed: {short_error(e)}")
     if record.get("online_blob_hash"):
         try:
             client.log_custody_event(center_id, "ONLINE_PAYLOAD", record["online_blob_hash"])
         except Exception as e:
-            online_warning = f"Registered, but anchoring the online payload failed: {short_error(e)}"
+            notes.append(f"anchoring the online payload failed: {short_error(e)}")
+        info = db.roster_info(center_id)
+        if info:
+            try:
+                client.log_custody_event(center_id, "ROSTER", info["roster_hash"])
+            except Exception as e:
+                notes.append(f"anchoring the candidate list failed: {short_error(e)}")
+        else:
+            notes.append("no candidate list yet. Create one under 'Candidate lists'; the online exam cannot "
+                         "start without it.")
+    if notes:
+        online_warning = "Registered, but " + "; ".join(notes)
     return {"status": "registered", "tx_hash": tx_hash, "exam_start_time": exam_start_time,
-            "online": bool(record.get("online_blob_hash")), "warning": online_warning}
+            "online": mode == "online", "exam_mode": mode, "warning": online_warning}
+
+
+# ---------------------------------------------------------------------
+# Board: candidate lists for online exams
+# ---------------------------------------------------------------------
+
+class CandidateIn(BaseModel):
+    candidate_id: str
+    name: str = ""
+
+
+class RosterRequest(BaseModel):
+    count: int | None = None                      # make IDs like 013-0001 ... , or
+    candidates: list[CandidateIn] | None = None   # give the IDs (e.g. application numbers) and names yourself
+    replace: bool = False
+
+
+def _board_anchored(client: PaperCustodyClient, center_id: str, stage: str) -> list[str]:
+    """Hashes the board wrote on-chain under `stage` for this center, oldest first."""
+    if not client.is_registered(center_id):      # the contract refuses to show the log of an unknown center
+        return []
+    me = client.account.lower()
+    return [bytes(e[3]).hex() for e in client.get_custody_log(center_id) if e[0] == stage and e[1].lower() == me]
+
+
+@app.post("/roster/{center_id}")
+def create_roster(center_id: str, req: RosterRequest):
+    """
+    The board creates who may sit this center's online exam. The plaintext access codes are in this response ONLY
+    (for admit cards); the board keeps salted hashes. The roster's hash goes on-chain at registration (or right away
+    if the center is already registered), after which it can no longer be replaced.
+    """
+    record = require_record(center_id)
+    if not record.get("online_blob_hash"):
+        raise HTTPException(409, f"{center_id} is print-only (generated before online mode).")
+    client = require_chain()
+    existing = db.roster_info(center_id)
+    if existing and not req.replace:
+        raise HTTPException(409, f"{center_id} already has a candidate list ({existing['count']} candidates). "
+                                 f"Replacing it makes the old access codes stop working; send replace=true to do that.")
+    if _board_anchored(client, center_id, "ROSTER"):
+        raise HTTPException(409, f"The candidate list of {center_id} is already recorded on-chain and cannot be changed.")
+    try:
+        rf, slips = rosters.build(center_id, req.count,
+                                  [c.model_dump() for c in req.candidates] if req.candidates else None)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    digest = rosters.roster_hash(rf)
+    db.save_roster(center_id, rf["salt"], digest,
+                   [(s["candidate_id"], s["name"], rf["candidates"][s["candidate_id"]]) for s in slips])
+
+    anchored, warning = False, None
+    if client.is_registered(center_id):
+        try:
+            client.log_custody_event(center_id, "ROSTER", digest)
+            anchored = True
+        except Exception as e:
+            warning = f"Saved, but anchoring on-chain failed: {short_error(e)}"
+    return {"center_id": center_id, "count": len(slips), "roster_hash": digest, "anchored": anchored,
+            "warning": warning, "codes": slips}
+
+
+@app.get("/roster/{center_id}")
+def get_roster_summary(center_id: str):
+    require_record(center_id)
+    r = db.get_roster(center_id)
+    if r is None:
+        return {"exists": False, "count": 0}
+    anchored = None
+    try:
+        anchored = r["roster_hash"] in _board_anchored(get_client(), center_id, "ROSTER")
+    except Exception:
+        pass
+    return {"exists": True, "count": len(r["candidates"]), "roster_hash": r["roster_hash"], "anchored": anchored,
+            "candidates": [{"candidate_id": c, "name": r["names"][c]} for c in r["candidates"]]}
+
+
+@app.get("/roster-file/{center_id}")
+def get_roster_file(center_id: str):
+    """What the center's exam server downloads: {center, kdf, salt, candidates: {id: code hash}}. No plaintext codes."""
+    require_record(center_id)
+    r = db.get_roster(center_id)
+    if r is None:
+        raise HTTPException(404, f"No candidate list has been created for {center_id}.")
+    rf = rosters.roster_file(center_id, r["salt"], r["candidates"])
+    return JSONResponse(content=rf, headers={"X-Roster-SHA256": r["roster_hash"]})
 
 
 @app.post("/release-key/{center_id}")
@@ -487,7 +678,7 @@ def get_online_blob(center_id: str):
     """
     record = require_record(center_id)
     if not record.get("online_object_key"):
-        raise HTTPException(404, f"{center_id} was generated before online mode existed; it is print-only.")
+        raise HTTPException(404, f"{center_id} has no online question payload (it is an offline, printed exam).")
     data = get_blob_store().get(record["online_object_key"])
     return Response(content=data, media_type="application/octet-stream",
                     headers={"X-Blob-SHA256": record["online_blob_hash"]})
@@ -496,6 +687,7 @@ def get_online_blob(center_id: str):
 class SheetItem(BaseModel):
     sheet: dict
     sha256: str
+    proof: list[list[str]] | None = None       # Merkle path of this sheet up to the on-chain root
 
 
 class SheetBatch(BaseModel):
@@ -508,7 +700,8 @@ def receive_sheets(center_id: str, batch: SheetBatch):
     """
     A center's exam server delivers its submitted answer sheets after the exam. Authenticated by a signature
     from the center's enrolled device (no shared secret). Each sheet is checked against the hash the device
-    wrote on-chain; only matching sheets are scored. Re-sending is safe; a stored sheet is never overwritten.
+    put on-chain (a Merkle root for the whole center; each sheet comes with its proof). Only sheets that prove
+    to be inside that root are scored. Re-sending is safe; a stored sheet is never overwritten.
     """
     record = require_record(center_id)
     device = record.get("printer_address")
@@ -526,7 +719,9 @@ def receive_sheets(center_id: str, batch: SheetBatch):
         raise HTTPException(403, f"Not signed by the device enrolled for {center_id}.")
 
     client = require_chain()
-    anchored = grading.anchored_hashes(client.get_custody_log(center_id), device)
+    log = client.get_custody_log(center_id)
+    anchored = grading.anchored_hashes(log, device)         # older exams: one hash per candidate
+    root = grading.anchored_root(log, device)               # current: one Merkle root for the center
     answer_key = keystore.get_answers(record["variant_id"])
 
     counts = {"scored": 0, "unverified": 0, "already_stored": 0, "conflicts": 0}
@@ -539,10 +734,14 @@ def receive_sheets(center_id: str, batch: SheetBatch):
             problem = "the sheet does not belong to this center's paper"
         elif actual != item.sha256:
             problem = "the sheet does not match its own hash"
-        elif cand not in anchored:
-            problem = "no hash for this candidate was recorded on-chain"
-        elif anchored[cand] != actual:
-            problem = "the sheet differs from the hash recorded on-chain"
+        elif item.proof is not None and root:
+            if not grading.verify_proof(actual, item.proof, root[0]):
+                problem = "the sheet is not part of the Merkle root recorded on-chain"
+        elif cand in anchored:
+            if anchored[cand] != actual:
+                problem = "the sheet differs from the hash recorded on-chain"
+        else:
+            problem = "no hash for this sheet was recorded on-chain"
 
         if problem:
             status = db.save_result(center_id, cand or "?", actual, json.dumps(sheet), False, None, None, None, None, problem)
@@ -552,6 +751,16 @@ def receive_sheets(center_id: str, batch: SheetBatch):
         status = db.save_result(center_id, cand, actual, json.dumps(sheet), True, g["score"], g["correct"], g["wrong"], g["blank"], None)
         counts["conflicts" if status == "conflict" else "already_stored" if status == "same" else "scored"] += 1
     return counts
+
+
+def _expected_sheets(center_id: str):
+    """How many sheets the center committed to on-chain (ANSWERS_ROOT:<n>), or None if not (yet) recorded."""
+    try:
+        rec = db.get_center_record(center_id)
+        root = grading.anchored_root(get_client().get_custody_log(center_id), rec["printer_address"])
+        return root[1] if root else None
+    except Exception:
+        return None
 
 
 @app.get("/results")
@@ -567,7 +776,7 @@ def results_summary():
     out = []
     for c in by_center.values():
         sc = c.pop("scores")
-        c.update(unverified=c["sheets"] - c["verified"], average=round(sum(sc) / len(sc), 1) if sc else None,
+        c.update(expected=_expected_sheets(c["center_id"]), unverified=c["sheets"] - c["verified"], average=round(sum(sc) / len(sc), 1) if sc else None,
                  highest=max(sc) if sc else None, lowest=min(sc) if sc else None)
         out.append(c)
     correct_mark, wrong_mark = grading.marks()
@@ -577,7 +786,7 @@ def results_summary():
 @app.get("/results/{center_id}")
 def results_for_center(center_id: str):
     require_record(center_id)
-    return {"center_id": center_id, "candidates": db.list_results(center_id)}
+    return {"center_id": center_id, "expected": _expected_sheets(center_id), "candidates": db.list_results(center_id)}
 
 
 @app.get("/status/{center_id}")
@@ -593,6 +802,10 @@ def status(center_id: str):
         "printed_count": state["printed_count"] if state["registered"] else None,
         "exam_start_time": state["exam_start_time"] if state["registered"] else None,
         "online_ready": bool(require_record(center_id).get("online_blob_hash")),
+        "exam_mode": require_record(center_id).get("exam_mode"),
+        "duration_minutes": require_record(center_id).get("duration_minutes"),
+        "phase": _phase(require_record(center_id), state, client.chain_now(),
+                        db.result_counts().get(center_id, 0)),
     }
 
 

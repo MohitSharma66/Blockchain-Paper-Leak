@@ -55,7 +55,7 @@
           <div class="k">Exam start (chain time)</div><div id="g-start"></div>
           <div class="k">Online paper</div><div id="g-online"></div>
           <div class="k">Exam server</div><div id="g-server"></div>
-          <div class="k">Answer sheets being recorded</div><div id="g-queue"></div>
+          <div class="k">Answer sheets on the chain</div><div id="g-queue"></div>
         </div>
       </div>
 
@@ -123,7 +123,7 @@
     $("g-start").textContent = chain.exam_start_time ? fmtTime(chain.exam_start_time) : "—";
     $("g-online").textContent = chain.online_ready ? "yes (has an online payload)" : "no: this paper is print-only";
     $("g-server").textContent = srv ? `running (${srv.phase})` : `${srvErr}`;
-    $("g-queue").textContent = srv ? (srv.anchoring_queue ? `${srv.anchoring_queue} waiting` : "none waiting") : "—";
+    $("g-queue").textContent = !srv ? "—" : srv.sheets_root ? `recorded (${srv.sheets_count} sheets, one transaction)` : srv.phase === "closed" ? "being recorded..." : "recorded after the exam ends";
 
     const big = $("countdown"), sub = $("countdown-sub");
     big.textContent = ""; sub.textContent = "";
@@ -133,12 +133,13 @@
       big.textContent = fmtLeft(srv.ends_at - srv.now); sub.textContent = "left in the exam (chain time)";
     }
 
-    if (!chain.online_ready) setMsg(`${id}: this paper was generated before online mode existed, so it can only be printed.`, "err");
+    if (chain.exam_mode === "offline") setMsg(`${id} is an OFFLINE exam center: its paper is printed, not taken on screen. Use the printing page instead.`, "err");
+    else if (!chain.online_ready) setMsg(`${id}: this paper has no online payload, so it can only be printed.`, "err");
     else if (!chain.registered) setMsg(`${id}: not registered with the exam board yet.`, "wait");
     else if (!chain.key_released) setMsg(`${id}: the paper is locked. The board releases the key at the exam start (${fmtTime(chain.exam_start_time)}, chain time).`, "wait");
     else if (!srv) setMsg(`${id}: the key is released, but the center's exam server is ${srvErr}. Start it (python exam_server.py run ...) or check the address above.`, "err");
     else if (srv.phase === "open") setMsg(`${id}: the exam is open. Candidates can log in.`, "ok");
-    else if (srv.phase === "closed") setMsg(`${id}: the exam time is over. Answer sheets are being recorded on the blockchain.`, "ok");
+    else if (srv.phase === "closed") setMsg(`${id}: the exam time is over. Answer sheets are being recorded on the blockchain (one Merkle root for the whole center).`, "ok");
     else if (srv.phase === "error") setMsg(`${id}: the exam server stopped safely: ${srv.message}`, "err");
     else setMsg(`${id}: ${srv.message}`, "wait");
   }

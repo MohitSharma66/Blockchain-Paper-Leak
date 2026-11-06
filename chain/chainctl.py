@@ -132,14 +132,25 @@ def cmd_validators(a, net):
         print(v, name_of(net, v))
 
 
-def live_addresses(net, lag: int = 10) -> set[str]:
-    """Addresses of nodes that answer AND are within `lag` blocks of the head (so they can actually take part)."""
+def live_addresses(net, lag: int = 10, min_peers: int = 2) -> set[str]:
+    """
+    Addresses of nodes that answer, are within `lag` blocks of the head, and are connected to other nodes
+    (a node with 0-1 peers hangs off a single neighbour and would be a fragile validator).
+    The network may be tiny, so the peer requirement is capped by how many nodes are running.
+    """
     heights = {n["name"]: height(n) for n in net["nodes"]}
     known = [h for h in heights.values() if h is not None]
     if not known:
         return set()
     top = max(known)
-    return {n["address"] for n in net["nodes"] if heights[n["name"]] is not None and top - heights[n["name"]] <= lag}
+    synced = [n for n in net["nodes"] if heights[n["name"]] is not None and top - heights[n["name"]] <= lag]
+    need = min(min_peers, max(len(synced) - 1, 0))
+    out = set()
+    for n in synced:
+        p = try_rpc(n, "net_peerCount")
+        if p is None or int(p, 16) >= need:
+            out.add(n["address"])
+    return out
 
 
 def quorum(n: int) -> int:
@@ -264,12 +275,13 @@ def cmd_vote_remove(a, net):
 def cmd_rotate(a, net):
     """Deterministic committee from a seed. Add first (so quorum only grows), then remove."""
     live = live_addresses(net)
-    # Only nodes that are running and caught up can be chosen: a stopped node would become a validator that never votes.
+    # Only nodes that are running, caught up and connected to peers can be chosen: a stopped or isolated node would
+    # become a validator that cannot take part.
     centers = [n for n in net["nodes"] if n["name"] != "node-board" and n["address"] in live]
     if net["nodes"][0]["address"] not in live:
         sys.exit("The board node is not running.")
     if a.size > len(centers):
-        sys.exit(f"--size {a.size} but only {len(centers)} center nodes are running and synced. "
+        sys.exit(f"--size {a.size} but only {len(centers)} center nodes are running, synced and connected (see `status`). "
                  f"Start more nodes (chainctl.py start <n>) or lower --size.")
     if a.size + 1 < 4:
         sys.exit("A committee needs at least 4 validators (board + 3 centers) to tolerate a fault.")

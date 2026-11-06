@@ -4,8 +4,10 @@ Grading of online answer sheets.
 A center's exam server sends its submitted sheets to the board, signed with the center device's key.
 The board then
   1. checks the signature belongs to the device enrolled for that center,
-  2. recomputes every sheet's SHA-256 and compares it with the hash the device wrote on-chain
-     (custody stage ANSWERS:<candidate>) when the candidate submitted,
+  2. recomputes every sheet's SHA-256 and checks that it is part of the Merkle root the device wrote on-chain
+     after the exam (custody stage ANSWERS_ROOT:<number of sheets>), using the sheet's Merkle proof. The root is
+     one transaction for the whole center; the proof shows a single sheet is inside it. (Older exams anchored one
+     hash per candidate, stage ANSWERS:<candidate>; that is still understood.)
   3. scores only sheets that match, against the answer key the board has held all along.
 A sheet that is missing on-chain or whose hash differs is stored as UNVERIFIED and gets no score.
 
@@ -20,6 +22,7 @@ from eth_account.messages import encode_defunct
 import config
 
 ANSWER_STAGE = "ANSWERS:"
+ROOT_STAGE = "ANSWERS_ROOT:"
 
 
 def marks() -> tuple[int, int]:
@@ -72,3 +75,73 @@ def anchored_hashes(log: list, device_address: str) -> dict:
             continue
         out.setdefault(stage[len(ANSWER_STAGE):], bytes(digest).hex())
     return out
+
+
+# ---------------------------------------------------------------------
+# Merkle tree over the sheet hashes of one center.
+# Leaves are the sheet SHA-256 values sorted ascending. leaf = sha256(0x00 | hash), node = sha256(0x01 | left | right);
+# an odd node at the end of a level is carried up unchanged (never duplicated). Must match exam-server/exam_server.py.
+# ---------------------------------------------------------------------
+
+def _leaf(h_hex: str) -> bytes:
+    return hashlib.sha256(b"\x00" + bytes.fromhex(h_hex)).digest()
+
+
+def _node(left: bytes, right: bytes) -> bytes:
+    return hashlib.sha256(b"\x01" + left + right).digest()
+
+
+def _levels(hashes: list[str]) -> list[list[bytes]]:
+    level = [_leaf(h) for h in sorted(set(hashes))]
+    if not level:
+        raise ValueError("No sheets.")
+    levels = [level]
+    while len(level) > 1:
+        level = [_node(level[i], level[i + 1]) if i + 1 < len(level) else level[i] for i in range(0, len(level), 2)]
+        levels.append(level)
+    return levels
+
+
+def merkle_root(hashes: list[str]) -> str:
+    return _levels(hashes)[-1][0].hex()
+
+
+def merkle_proofs(hashes: list[str]) -> dict:
+    """{sheet hash: [[side, sibling hex], ...]} where side says which side the sibling is on ("L" or "R")."""
+    ordered = sorted(set(hashes))
+    levels = _levels(ordered)
+    out = {}
+    for i, h in enumerate(ordered):
+        idx, proof = i, []
+        for level in levels[:-1]:
+            if idx % 2 == 0:
+                if idx + 1 < len(level):
+                    proof.append(["R", level[idx + 1].hex()])
+            else:
+                proof.append(["L", level[idx - 1].hex()])
+            idx //= 2
+        out[h] = proof
+    return out
+
+
+def verify_proof(sheet_hash_hex: str, proof: list, root_hex: str) -> bool:
+    try:
+        cur = _leaf(sheet_hash_hex)
+        for side, sib in proof:
+            cur = _node(cur, bytes.fromhex(sib)) if side == "R" else _node(bytes.fromhex(sib), cur)
+        return cur.hex() == root_hex.lower()
+    except (ValueError, TypeError):
+        return False
+
+
+def anchored_root(log: list, device_address: str):
+    """(root hex, sheet count) of the first ANSWERS_ROOT entry written by the center device, or None."""
+    for entry in log:
+        stage, actor, digest = entry[0], entry[1], entry[3]
+        if stage.startswith(ROOT_STAGE) and actor.lower() == device_address.lower():
+            try:
+                count = int(stage[len(ROOT_STAGE):])
+            except ValueError:
+                count = None
+            return bytes(digest).hex(), count
+    return None

@@ -28,15 +28,19 @@ import config
 
 DB_PATH = config.DATA_DIR / "board.db"
 
-_UPDATABLE = {"exam_start_time", "printer_address", "printer_public_key", "printer_fingerprint"}
+_UPDATABLE = {"exam_start_time", "printer_address", "printer_public_key", "printer_fingerprint",
+              "enrollment_confirmed_at"}
 
 # Columns added after the first release; added to older databases on startup.
 _EXTRA_COLUMNS = {
     "printer_address": "TEXT",
     "printer_public_key": "TEXT",
     "printer_fingerprint": "TEXT",
+    "enrollment_confirmed_at": "INTEGER",   # when the operator typed the device's fingerprint; NULL = not confirmed
     "online_blob_hash": "TEXT",      # encrypted question payload for online exams (same AES key as the PDF)
     "online_object_key": "TEXT",
+    "exam_mode": "TEXT",             # 'online' | 'offline' (printed); NULL = made before modes existed (supports both)
+    "duration_minutes": "INTEGER",   # online exams only
 }
 
 
@@ -85,6 +89,65 @@ def _init_results() -> None:
         )
 
 
+def _init_rosters() -> None:
+    with closing(_connect()) as conn, conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS rosters (
+                center_id   TEXT PRIMARY KEY,
+                salt        TEXT NOT NULL,
+                roster_hash TEXT NOT NULL,
+                created_at  INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS candidates (
+                center_id    TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                name         TEXT,
+                code_hash    TEXT NOT NULL,
+                PRIMARY KEY (center_id, candidate_id)
+            )
+            """
+        )
+
+
+def save_roster(center_id: str, salt: str, roster_hash: str, rows: list) -> None:
+    """rows: [(candidate_id, name, code_hash)]. Replaces any earlier roster of that center."""
+    with closing(_connect()) as conn, conn:
+        conn.execute("DELETE FROM candidates WHERE center_id = ?", (center_id,))
+        conn.execute("DELETE FROM rosters WHERE center_id = ?", (center_id,))
+        conn.execute("INSERT INTO rosters (center_id, salt, roster_hash, created_at) VALUES (?, ?, ?, ?)",
+                     (center_id, salt, roster_hash, int(time.time())))
+        conn.executemany("INSERT INTO candidates (center_id, candidate_id, name, code_hash) VALUES (?, ?, ?, ?)",
+                         [(center_id, cid, name, h) for cid, name, h in rows])
+
+
+def roster_info(center_id: str) -> Optional[dict]:
+    """{roster_hash, count, created_at} without loading the hashes, or None."""
+    with closing(_connect()) as conn:
+        meta = conn.execute("SELECT roster_hash, created_at FROM rosters WHERE center_id = ?", (center_id,)).fetchone()
+        if meta is None:
+            return None
+        n = conn.execute("SELECT COUNT(*) AS n FROM candidates WHERE center_id = ?", (center_id,)).fetchone()["n"]
+    return {"roster_hash": meta["roster_hash"], "created_at": meta["created_at"], "count": n}
+
+
+def get_roster(center_id: str) -> Optional[dict]:
+    """{salt, roster_hash, created_at, candidates: {id: code_hash}, names: {id: name}} or None."""
+    with closing(_connect()) as conn:
+        meta = conn.execute("SELECT salt, roster_hash, created_at FROM rosters WHERE center_id = ?",
+                            (center_id,)).fetchone()
+        if meta is None:
+            return None
+        rows = conn.execute("SELECT candidate_id, name, code_hash FROM candidates WHERE center_id = ? "
+                            "ORDER BY candidate_id", (center_id,)).fetchall()
+    return {**dict(meta), "candidates": {r["candidate_id"]: r["code_hash"] for r in rows},
+            "names": {r["candidate_id"]: r["name"] or "" for r in rows}}
+
+
 def save_result(center_id: str, candidate_id: str, sheet_hash: str, sheet_json: str, verified: bool,
                 score: Optional[int], correct: Optional[int], wrong: Optional[int], blank: Optional[int],
                 note: Optional[str]) -> str:
@@ -101,6 +164,13 @@ def save_result(center_id: str, candidate_id: str, sheet_hash: str, sheet_json: 
              int(time.time())),
         )
     return "new"
+
+
+def result_counts() -> dict:
+    """{center_id: number of stored answer sheets}"""
+    with closing(_connect()) as conn:
+        return {r["center_id"]: r["n"] for r in
+                conn.execute("SELECT center_id, COUNT(*) AS n FROM results GROUP BY center_id")}
 
 
 def list_results(center_id: Optional[str] = None) -> list:
@@ -124,6 +194,7 @@ def _migrate() -> None:
 
 _init()
 _init_results()
+_init_rosters()
 _migrate()
 
 
@@ -136,14 +207,16 @@ def upsert_center_record(
     exam_start_time: Optional[int] = None,
     online_blob_hash: Optional[str] = None,
     online_object_key: Optional[str] = None,
+    exam_mode: Optional[str] = None,
+    duration_minutes: Optional[int] = None,
 ) -> None:
     with closing(_connect()) as conn, conn:
         conn.execute(
             """
             INSERT INTO centers
                 (center_id, variant_id, fingerprint, blob_hash, blob_object_key, exam_start_time, created_at,
-                 online_blob_hash, online_object_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 online_blob_hash, online_object_key, exam_mode, duration_minutes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(center_id) DO UPDATE SET
                 variant_id = excluded.variant_id,
                 fingerprint = excluded.fingerprint,
@@ -151,10 +224,12 @@ def upsert_center_record(
                 blob_object_key = excluded.blob_object_key,
                 exam_start_time = excluded.exam_start_time,
                 online_blob_hash = excluded.online_blob_hash,
-                online_object_key = excluded.online_object_key
+                online_object_key = excluded.online_object_key,
+                exam_mode = excluded.exam_mode,
+                duration_minutes = excluded.duration_minutes
             """,
             (center_id, variant_id, fingerprint, blob_hash, blob_object_key, exam_start_time, int(time.time()),
-             online_blob_hash, online_object_key),
+             online_blob_hash, online_object_key, exam_mode, duration_minutes),
         )
 
 

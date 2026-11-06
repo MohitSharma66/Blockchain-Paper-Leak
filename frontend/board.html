@@ -62,7 +62,7 @@
   <!-- 1. Generate -->
   <div class="card">
     <h2>1. Generate paper variants</h2>
-    <p class="sub">Each variant is the same paper with the options shuffled differently, rendered to PDF and encrypted. One variant is assigned to each center.</p>
+    <p class="sub">Each variant is the same paper with the options shuffled differently, encrypted, and assigned to one center. Choose how this batch will be sat: <b>offline</b> variants are rendered to PDF and printed at the center; <b>online</b> variants are served to candidates on the center's computers and graded here afterwards.</p>
 
     <div class="file-row">
       <input type="file" id="pdf-import-file" accept="application/pdf,.pdf" />
@@ -102,6 +102,17 @@
         <label for="num-variants">Number of variants (= centers)</label>
         <input type="number" id="num-variants" min="1" max="500" value="4" />
       </div>
+      <div style="width: 230px;">
+        <label for="exam-mode">Exam type</label>
+        <select id="exam-mode">
+          <option value="offline" selected>Offline (printed at the center)</option>
+          <option value="online">Online (on the center's computers)</option>
+        </select>
+      </div>
+      <div style="width: 150px;" id="duration-wrap" hidden>
+        <label for="duration">Exam length (minutes)</label>
+        <input type="number" id="duration" min="5" max="720" value="180" />
+      </div>
       <button id="generate-btn">Generate</button>
     </div>
     <div id="gen-msg" class="msg"></div>
@@ -110,7 +121,7 @@
   <!-- 2. Centers -->
   <div class="card">
     <h2>2. Centers</h2>
-    <p class="sub">First enroll each center's center device: upload the enrollment file its center device agent created, and check the fingerprint shown here matches the one on the center device itself. Then register: that writes the blob hash, variant, exam start, center device address and expected copies to the contract. No key goes on-chain until release.</p>
+    <p class="sub">First enroll each center's device: upload the enrollment file its device created. The board does <b>not</b> show a fingerprint for it. Ask the device's operator to read out the fingerprint the device displays (over a separate channel such as a phone call, not together with the file) and type it into the row below. If it matches, the file is genuine; if not, it was altered on the way. Then register: that writes the blob hash, variant, exam start, printer address and expected copies to the contract. No key goes on-chain until release.</p>
 
     <div class="toolbar">
       <div class="field">
@@ -121,7 +132,7 @@
         <label for="default-copies">Default copies per center</label>
         <input type="number" id="default-copies" min="1" value="30" />
       </div>
-      <button class="secondary" id="enroll-btn">Enroll center devices…</button>
+      <button class="secondary" id="enroll-btn">Enroll printers…</button>
       <input type="file" id="enroll-files" accept=".json,application/json" multiple hidden />
       <button id="register-all-btn">Register all enrolled</button>
       <button class="secondary" id="refresh-btn">Refresh</button>
@@ -143,7 +154,7 @@
             <th>Center ID</th>
             <th>Variant</th>
             <th>Blob hash</th>
-            <th>center device</th>
+            <th>Printer</th>
             <th>Key</th>
             <th>Copies</th>
             <th>Exam start</th>
@@ -159,16 +170,40 @@
     <div id="center-msg" class="msg"></div>
   </div>
 
+  <!-- 3. Candidate lists -->
   <div class="card">
-    <h2>3. Online exam results</h2>
-    <p class="sub">After an online exam closes, each center sends its answer sheets here. A sheet is scored only if its fingerprint matches the one the center wrote on the blockchain when the candidate submitted. <span id="marking"></span></p>
+    <h2>3. Candidate lists (online exams)</h2>
+    <p class="sub">For an online exam the board decides who may sit it. Create the list for a center here: each candidate gets an ID and a one-time access code. The codes are downloaded once as a CSV for the admit cards and are not stored anywhere; only salted hashes are kept. The list's fingerprint is written to the blockchain when the center is registered, so the center cannot change it. Create the list before registering the center (it can also be added afterwards, until it is recorded).</p>
+    <div class="toolbar">
+      <div class="field">
+        <label for="roster-center">Center</label>
+        <select id="roster-center"></select>
+      </div>
+      <div class="field">
+        <label for="roster-count">Number of candidates</label>
+        <input type="number" id="roster-count" min="1" max="20000" value="30" />
+      </div>
+      <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="roster-replace" /> replace an existing list</label>
+      <button id="roster-btn">Create list and download codes</button>
+    </div>
+    <details class="review"><summary>Or give the candidates yourself (application numbers and names)</summary>
+      <p class="sub" style="margin:8px 0">One per line: <code>candidate id, name</code>. If you fill this in, the number above is ignored. IDs may contain letters, digits, dots, dashes and underscores.</p>
+      <textarea id="roster-lines" spellcheck="false" placeholder="NEET2026-000123, Asha Verma&#10;NEET2026-000124, Rohan Iyer"></textarea>
+    </details>
+    <div id="roster-status" class="muted" style="margin-top:10px"></div>
+    <div id="roster-msg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>4. Online exam results</h2>
+    <p class="sub">After an online exam closes, the center records one fingerprint (a Merkle root) of all its answer sheets on the blockchain and sends the sheets here with a proof for each. A sheet is scored only if its proof matches that on-chain fingerprint. "Expected" is how many sheets the center committed to, so a center cannot quietly drop a candidate's sheet. <span id="marking"></span></p>
     <div class="row" style="margin-bottom:12px">
       <button class="secondary" id="results-refresh">Refresh results</button>
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Center</th><th>Sheets</th><th>Verified</th><th>Unverified</th><th>Average</th><th>Highest</th><th>Lowest</th><th></th></tr></thead>
-        <tbody id="results-body"><tr><td colspan="8" class="empty">No results yet.</td></tr></tbody>
+        <thead><tr><th>Center</th><th>Expected</th><th>Received</th><th>Verified</th><th>Unverified</th><th>Average</th><th>Highest</th><th>Lowest</th><th></th></tr></thead>
+        <tbody id="results-body"><tr><td colspan="9" class="empty">No results yet.</td></tr></tbody>
       </table>
     </div>
     <div id="results-detail" style="margin-top:18px"></div>
@@ -416,20 +451,26 @@
     // The picture of the original is only sent where it is printed (render_as_image); the rest was for review.
     for (const q of questions) { if (q && q.render_as_image !== true) delete q.question_image; }
 
+    const mode = $("exam-mode").value;
+    const duration = parseInt($("duration").value, 10);
+    if (mode === "online" && !(duration >= 5 && duration <= 720)) { setMsg(msg, "Exam length must be between 5 and 720 minutes.", "err"); return; }
     $("generate-btn").disabled = true;
-    setMsg(msg, `Generating ${n} variant${n === 1 ? "" : "s"} (shuffle, render PDF, encrypt, store)…`, "wait");
+    setMsg(msg, `Generating ${n} ${mode} variant${n === 1 ? "" : "s"} (shuffle, ${mode === "online" ? "build question payload" : "render PDF"}, encrypt, store)…`, "wait");
     const r = await api("/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paper, num_variants: n })
+      body: JSON.stringify({ paper, num_variants: n, mode, duration_minutes: mode === "online" ? duration : null })
     });
     $("generate-btn").disabled = false;
 
     if (!r.ok) { setMsg(msg, r.error, "err"); return; }
     const list = r.data.centers;
-    setMsg(msg, `Generated ${list.length} center${list.length === 1 ? "" : "s"}: ${list[0].center_id} to ${list[list.length - 1].center_id}. Next: enroll their center devices.`, "ok");
+    setMsg(msg, `Generated ${list.length} center${list.length === 1 ? "" : "s"}: ${list[0].center_id} to ${list[list.length - 1].center_id}. Next: enroll their center devices` +
+      (mode === "online" ? ", then create their candidate lists (card 3)." : "."), "ok");
     await loadCenters(true);
   });
+
+  $("exam-mode").addEventListener("change", () => { $("duration-wrap").hidden = $("exam-mode").value !== "online"; });
 
   // ---------- centers table ----------
   function copiesFor(id) {
@@ -438,13 +479,23 @@
     return d >= 1 ? d : 30;
   }
 
+  const PHASES = {
+    locked:         ["amber", "Registered · locked"],
+    awaiting_print: ["amber", "Released · awaiting printing"],
+    printing:       ["amber", "Printing"],
+    printed:        ["green", "Printed"],
+    exam_ongoing:   ["amber", "Exam ongoing"],
+    exam_over:      ["amber", "Exam over · waiting for sheets"],
+    results_in:     ["green", "Results in"],
+  };
+
   function statusPill(c) {
     if (c.registered === null) return ["grey", "Unknown (chain offline)"];
-    if (!c.registered) return c.enrolled ? ["grey", "Not registered"] : ["grey", "Needs center device"];
-    if (!c.key_released) return ["amber", "Registered · locked"];
-    if (c.printed_count >= c.expected_copies) return ["green", "Printed"];
-    if (c.printed_count > 0) return ["amber", "Printing"];
-    return ["amber", "Released · awaiting center device"];
+    if (!c.registered) {
+      if (!c.enrolled) return ["grey", "Needs center device"];
+      return c.enrollment_state === "confirmed" ? ["grey", "Not registered"] : ["amber", "Awaiting confirmation"];
+    }
+    return PHASES[c.phase] || ["grey", c.phase || "Registered"];
   }
 
   function renderCenters(payload) {
@@ -462,18 +513,31 @@
 
       cell(el("code", { textContent: c.center_id }));
       const variantCell = cell(el("code", { textContent: c.variant_id }));
-      if (c.online_ready) {
-        variantCell.append(el("span", { className: "pill grey", textContent: "online", title: "This paper also has an online-exam payload", style: "margin-left:6px" }));
+      if (c.exam_mode === "online") {
+        variantCell.append(el("span", { className: "pill grey", textContent: `online · ${c.duration_minutes} min`, style: "margin-left:6px" }));
+      } else if (c.exam_mode === "offline") {
+        variantCell.append(el("span", { className: "pill grey", textContent: "offline", style: "margin-left:6px" }));
+      } else if (c.online_ready) {
+        variantCell.append(el("span", { className: "pill grey", textContent: "print or online", title: "Made before exam types existed: it can be printed or run online", style: "margin-left:6px" }));
       }
       cell(el("code", { textContent: c.blob_hash.slice(0, 12) + "…", title: c.blob_hash }));
 
-      // center device: fingerprint to compare in person, plus the chain address
+      // Center device: once confirmed, its fingerprint; until then a box to type the one the DEVICE shows
       if (c.enrolled) {
         const addr = c.printer_address;
-        cell(
-          el("code", { textContent: c.printer_fingerprint, title: "Compare with the fingerprint shown on the center device" }),
-          el("div", { className: "muted mono sub2", textContent: addr.slice(0, 8) + "…" + addr.slice(-4), title: addr })
-        );
+        const addrLine = el("div", { className: "muted mono sub2", textContent: addr.slice(0, 8) + "…" + addr.slice(-4), title: addr });
+        if (c.enrollment_state === "confirmed") {
+          cell(el("code", { textContent: c.printer_fingerprint || "—", title: "Confirmed: matched what the device showed" }), addrLine);
+        } else {
+          const input = el("input", { type: "text", placeholder: "type the device's fingerprint", value: fpTyped.get(c.center_id) || "",
+                                      autocomplete: "off", spellcheck: false, style: "width:200px;font-family:monospace",
+                                      title: "Read it from the center device, not from this page" });
+          input.addEventListener("input", () => fpTyped.set(c.center_id, input.value));
+          input.addEventListener("keydown", (e) => { if (e.key === "Enter") confirmOne(c.center_id); });
+          const btn = el("button", { className: "small", textContent: "Confirm" });
+          btn.addEventListener("click", () => confirmOne(c.center_id));
+          cell(el("div", { className: "row", style: "gap:6px;align-items:center" }, input, btn), addrLine);
+        }
       } else {
         cell(el("span", { className: "muted", textContent: "Not enrolled" }));
       }
@@ -484,8 +548,11 @@
       else if (c.key_released) keyText = "destroyed at release";
       cell(el("span", { className: "muted", textContent: keyText }));
 
-      // Copies: editable before registration, printed/expected after
-      if (c.registered) {
+      // Copies (offline) or candidates (online)
+      if (c.exam_mode === "online") {
+        cell(el("span", { className: c.roster_count ? "" : "muted",
+                          textContent: c.roster_count ? `${c.roster_count} candidates` : "no candidate list yet" }));
+      } else if (c.registered) {
         const printed = c.printed_count, expected = c.expected_copies;
         const bar = el("div", { className: "bar" }, el("span"));
         bar.firstChild.style.width = Math.min(100, Math.round((printed / expected) * 100)) + "%";
@@ -507,6 +574,9 @@
       } else {
         start.className = "muted"; start.textContent = "—";
       }
+      if (c.exam_mode === "online" && c.exam_start_time) {
+        start.appendChild(el("div", { className: "muted sub2", textContent: "ends " + fmtTime(c.exam_start_time + c.duration_minutes * 60) }));
+      }
       cell(start);
 
       const [kind, label] = statusPill(c);
@@ -515,7 +585,8 @@
       const actions = cell();
       if (c.registered === false) {
         const b = el("button", { className: "small", textContent: "Register" });
-        if (!c.enrolled) { b.disabled = true; b.title = "Enroll this center's center device first"; }
+        if (!c.enrolled) { b.disabled = true; b.title = "Enroll this center's device first"; }
+        else if (c.enrollment_state !== "confirmed") { b.disabled = true; b.title = "Confirm the device's fingerprint first"; }
         b.addEventListener("click", () => registerOne(c.center_id));
         actions.appendChild(b);
       } else if (c.registered && !c.key_released) {
@@ -523,8 +594,9 @@
         b.addEventListener("click", () => releaseOne(c.center_id));
         actions.appendChild(b);
       } else if (c.key_released) {
-        const a = el("a", { className: "link", textContent: "Center view →" });
-        a.href = "center.html?center=" + encodeURIComponent(c.center_id);
+        const online = c.exam_mode === "online";
+        const a = el("a", { className: "link", textContent: online ? "Exam view →" : "Center view →" });
+        a.href = (online ? "online.html?center=" : "center.html?center=") + encodeURIComponent(c.center_id);
         actions.appendChild(a);
       }
 
@@ -541,6 +613,7 @@
     }
     const d = r.data;
     currentCenters = d.centers;
+    fillRosterSelect();
 
     $("chain-pill").className = "pill " + (d.chain_online ? "green" : "red");
     $("chain-pill").textContent = d.chain_online ? "online" : "offline";
@@ -555,7 +628,7 @@
     renderCenters(d);
   }
 
-  // ---------- enroll center devices ----------
+  // ---------- enroll printers ----------
   $("enroll-btn").addEventListener("click", () => $("enroll-files").click());
 
   $("enroll-files").addEventListener("change", async (ev) => {
@@ -565,7 +638,7 @@
 
     const lines = [];
     let failed = 0;
-    setMsg($("center-msg"), `Enrolling ${files.length} center device${files.length === 1 ? "" : "s"}…`, "wait");
+    setMsg($("center-msg"), `Enrolling ${files.length} printer${files.length === 1 ? "" : "s"}…`, "wait");
 
     for (const f of files) {
       let data;
@@ -584,14 +657,28 @@
       });
       if (!r.ok) { lines.push(`✗ ${data.center_id}: ${r.error}`); failed++; continue; }
       const j = r.data;
-      lines.push(`✓ ${j.center_id}: fingerprint ${j.fingerprint}` +
-        (j.funded ? " (center device funded)" : "") + (j.warning ? `\n   note: ${j.warning}` : ""));
+      lines.push(`✓ ${j.center_id}: received, awaiting confirmation` +
+        (j.funded ? " (device funded)" : "") + (j.warning ? `\n   note: ${j.warning}` : ""));
     }
 
-    lines.push("", "Check each fingerprint against the one shown on the center device itself before registering.");
+    lines.push("", "Now confirm each center in the table: type the fingerprint its DEVICE shows. It is not displayed here on purpose.");
     setMsg($("center-msg"), lines.join("\n"), failed ? "err" : "ok");
     await loadCenters(true);
   });
+
+  // ---------- confirm an enrollment ----------
+  const fpTyped = new Map();
+  async function confirmOne(centerId) {
+    const typed = (fpTyped.get(centerId) || "").trim();
+    if (!typed) { setMsg($("center-msg"), `Type the fingerprint shown on ${centerId}'s device first.`, "err"); return; }
+    const r = await api(`/confirm-enrollment/${encodeURIComponent(centerId)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fingerprint: typed })
+    });
+    if (!r.ok) { setMsg($("center-msg"), `${centerId}: ${r.error}`, "err"); return; }
+    fpTyped.delete(centerId);
+    setMsg($("center-msg"), `${centerId}: confirmed. The fingerprint you typed matches the enrollment the board received. It can be registered now.`, "ok");
+    await loadCenters(true);
+  }
 
   // ---------- register / release ----------
   async function registerOne(centerId, quiet) {
@@ -624,17 +711,17 @@
       return;
     }
     setMsg($("center-msg"),
-      `Key for ${centerId} was wrapped to its center device and posted on-chain` +
+      `Key for ${centerId} was wrapped to its printer and posted on-chain` +
       (r.data.stored_key_destroyed ? "; the board's stored copy was destroyed." : "."), "ok");
     await loadCenters(true);
   }
 
   $("register-all-btn").addEventListener("click", async () => {
     if (busy) return;
-    const todo = currentCenters.filter(c => c.registered === false && c.enrolled);
-    const skipped = currentCenters.filter(c => c.registered === false && !c.enrolled).length;
+    const todo = currentCenters.filter(c => c.registered === false && c.enrolled && c.enrollment_state === "confirmed");
+    const skipped = currentCenters.filter(c => c.registered === false && !(c.enrolled && c.enrollment_state === "confirmed")).length;
     if (!todo.length) {
-      setMsg($("center-msg"), skipped ? `Nothing to register: ${skipped} center(s) still need a center device enrolled.` : "Nothing to register.", "wait");
+      setMsg($("center-msg"), skipped ? `Nothing to register: ${skipped} center(s) still need a device enrolled and confirmed.` : "Nothing to register.", "wait");
       return;
     }
     busy = true; $("register-all-btn").disabled = true;
@@ -647,7 +734,7 @@
     busy = false; $("register-all-btn").disabled = false;
     if (done === todo.length) {
       setMsg($("center-msg"), `Registered ${done} center${done === 1 ? "" : "s"}.` +
-        (skipped ? ` ${skipped} skipped: no center device enrolled.` : ""), "ok");
+        (skipped ? ` ${skipped} skipped: device not enrolled or not confirmed.` : ""), "ok");
     }
     await loadCenters(true);
   });
@@ -664,6 +751,52 @@
     await loadCenters(true);
   });
 
+  // ---------- candidate lists ----------
+  function fillRosterSelect() {
+    const sel = $("roster-center");
+    const keep = sel.value;
+    sel.replaceChildren(...currentCenters.filter(c => c.online_ready).map(c =>
+      el("option", { value: c.center_id, textContent: c.center_id + (c.roster_count ? ` (${c.roster_count} candidates)` : "") })));
+    if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+    showRosterStatus();
+  }
+
+  async function showRosterStatus() {
+    const id = $("roster-center").value;
+    const box = $("roster-status");
+    if (!id) { box.textContent = ""; return; }
+    const r = await api(`/roster/${encodeURIComponent(id)}`);
+    if (!r.ok) { box.textContent = ""; return; }
+    box.textContent = !r.data.exists ? `${id}: no candidate list yet.`
+      : `${id}: ${r.data.count} candidates; recorded on the blockchain: ${r.data.anchored === null ? "unknown" : r.data.anchored ? "yes (final)" : "not yet (happens at registration)"}.`;
+  }
+
+  function csvCell(v) { return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+
+  $("roster-center").addEventListener("change", showRosterStatus);
+  $("roster-btn").addEventListener("click", async () => {
+    const id = $("roster-center").value;
+    if (!id) { setMsg($("roster-msg"), "Generate paper variants first; there is no online-capable center yet.", "err"); return; }
+    const lines = $("roster-lines").value.split("\n").map(l => l.trim()).filter(Boolean);
+    const body = { replace: $("roster-replace").checked };
+    if (lines.length) {
+      body.candidates = lines.map(l => { const i = l.indexOf(","); return i < 0 ? { candidate_id: l, name: "" } : { candidate_id: l.slice(0, i).trim(), name: l.slice(i + 1).trim() }; });
+    } else body.count = parseInt($("roster-count").value, 10);
+    setMsg($("roster-msg"), "Creating the list (hashing every access code takes a moment)…", "wait");
+    $("roster-btn").disabled = true;
+    const r = await api(`/roster/${encodeURIComponent(id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    $("roster-btn").disabled = false;
+    if (!r.ok) { setMsg($("roster-msg"), r.error, "err"); return; }
+    const csv = ["candidate_id,name,access_code", ...r.data.codes.map(c => [c.candidate_id, c.name, c.code].map(csvCell).join(","))].join("\r\n");
+    const a = el("a", { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `admit_codes_${id}.csv` });
+    document.body.append(a); a.click(); a.remove();
+    setMsg($("roster-msg"), `${r.data.count} candidates created for ${id}. The access codes were downloaded as admit_codes_${id}.csv: they are not stored and cannot be shown again. ` +
+      (r.data.anchored ? "The list is now recorded on the blockchain." : "It will be recorded on the blockchain when the center is registered.") +
+      (r.data.warning ? " " + r.data.warning : ""), r.data.warning ? "err" : "ok");
+    $("roster-lines").value = ""; $("roster-replace").checked = false;
+    await loadCenters(true);
+  });
+
   // ---------- online exam results ----------
   async function loadResults() {
     const r = await api("/results");
@@ -674,7 +807,7 @@
     const m = r.data.marking;
     $("marking").textContent = `Marking: +${m.correct} correct, ${m.wrong} wrong, ${m.blank} unanswered.`;
     if (!r.data.centers.length) {
-      body.append(el("tr", null, el("td", { colSpan: 8, className: "empty", textContent: "No results yet." })));
+      body.append(el("tr", null, el("td", { colSpan: 9, className: "empty", textContent: "No results yet." })));
       return;
     }
     for (const c of r.data.centers) {
@@ -683,6 +816,7 @@
       const num = (v) => (v === null || v === undefined ? "—" : String(v));
       body.append(el("tr", null,
         el("td", null, el("code", { textContent: c.center_id })),
+        el("td", { textContent: num(c.expected) }),
         el("td", { textContent: String(c.sheets) }),
         el("td", { textContent: String(c.verified) }),
         el("td", { textContent: String(c.unverified) }),
@@ -710,6 +844,8 @@
           c.note ? el("div", { className: "muted", textContent: c.note }) : el("span")),
         el("td", null, el("code", { textContent: c.sheet_hash.slice(0, 12) + "…", title: c.sheet_hash }))));
     }
+    const missing = (r.data.expected !== null && r.data.expected !== undefined) ? r.data.expected - r.data.candidates.length : 0;
+    if (missing > 0) box.append(el("div", { className: "msg err", textContent: `${missing} sheet${missing === 1 ? "" : "s"} the center committed to on-chain ${missing === 1 ? "has" : "have"} not been received.` }));
     box.append(el("h3", { textContent: `${centerId}: candidates`, style: "font-size:14px;margin:0 0 8px" }),
       el("div", { className: "table-wrap" }, el("table", null,
         el("thead", null, el("tr", null, ...["Candidate", "Score", "Correct", "Wrong", "Blank", "Status", "Sheet hash"].map(t => el("th", { textContent: t })))),
